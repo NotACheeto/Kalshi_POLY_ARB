@@ -55,9 +55,7 @@ execution:
   log_level: "INFO"
 
 short_duration_series_whitelist:
-  - "KXBTC15M"     # Bitcoin 15-Minute Recurring Up/Down Fixings
-  - "KXETH15M"     # Ethereum 15-Minute Recurring Up/Down Fixings
-  - "KXSOL15M"     # Solana 15-Minute Recurring Up/Down Fixings
+  - "KXBTC15M"     # Bitcoin 15-Minute Recurring Up/Down Fixings (BTC only)
   - "KXBTCD"       # Bitcoin Daily Price Fixings
   - "KXETHD"       # Ethereum Daily Price Fixings
   - "KXSOLUSD"     # Solana Daily Price Fixings

@@ -259,3 +259,34 @@ def test_reject_5m_vs_15m(matcher):
     matches = matcher.find_matches([poly], [kalshi], now=now)
     assert len(matches) == 0, "5-minute market and 15-minute market must never match"
 
+
+def test_reject_15m_eth_and_sol(matcher):
+    now = datetime.now(timezone.utc)
+    res_time = now + timedelta(minutes=10)
+
+    # Both are ETH 15m
+    poly = NormalizedMarket(
+        platform=Platform.POLYMARKET,
+        market_id="poly_eth_15m",
+        event_id="eth-updown-15m-1790833500",
+        title="Ethereum Up or Down - October 1, 1:45AM-2:00AM ET",
+        description="",
+        category="CRYPTO",
+        resolution_time=res_time,
+        settlement_source="Chainlink TWAP",
+    )
+    kalshi = NormalizedMarket(
+        platform=Platform.KALSHI,
+        market_id="KXETH15M-26OCT010200-00",
+        event_id="KXETH15M-26OCT010200",
+        title="ETH price up in next 15 mins?",
+        description="",
+        category="CRYPTO",
+        resolution_time=res_time,
+        settlement_source="CF Benchmarks BRTI",
+    )
+
+    matches = matcher.find_matches([poly], [kalshi], now=now)
+    assert len(matches) == 0, "Ethereum 15m markets must be rejected (Bitcoin only)"
+
+

@@ -201,12 +201,15 @@ class MarketMatcher:
     ) -> Optional[MatchedMarketPair]:
         """
         Deterministic matcher for 15-minute Up/Down recurring crypto markets.
-        Both contracts measure whether the coin price at the end of the 15-minute
+        Strictly restricted to Bitcoin (BTC) only.
+        Both contracts measure whether the BTC price at the end of the 15-minute
         window is >= the price at the start of the window.
         """
         poly_coin = self._extract_crypto_coin(poly.title + " " + poly.market_id)
         kalshi_coin = self._extract_crypto_coin(kalshi.title + " " + kalshi.event_id + " " + kalshi.market_id)
-        if not poly_coin or poly_coin != kalshi_coin:
+        
+        # Strictly Bitcoin only for recurring 15-minute arbitrage
+        if poly_coin != "BTC" or kalshi_coin != "BTC":
             return None
 
         # Expiration time must align within 60 seconds (both close at the exact 15m mark)
@@ -219,7 +222,7 @@ class MarketMatcher:
             pair_id=pair_id,
             poly_market=poly,
             kalshi_market=kalshi,
-            underlying_entity=f"CRYPTO_{poly_coin}_15M",
+            underlying_entity="CRYPTO_BTC_15M",
             target_metric="UP_OR_DOWN_15M",
             strike_value=0.0,
             resolution_time=min(poly.resolution_time, kalshi.resolution_time),
@@ -229,8 +232,12 @@ class MarketMatcher:
 
     @staticmethod
     def _is_15m_crypto(market: NormalizedMarket) -> bool:
-        """Identify if a contract is a 15-minute recurring Up/Down market."""
+        """Identify if a contract is a 15-minute recurring Up/Down Bitcoin market."""
         t = f"{market.title} {market.market_id} {market.event_id} {market.description}".lower()
+
+        # Strictly Bitcoin only for 15m recurring arbitrage (exclude ETH, SOL, etc.)
+        if not ("btc" in t or "bitcoin" in t):
+            return False
 
         # Reject explicit 5m markets
         if "-5m" in t or "updown-5m" in t or re.search(r'\b5\s*(?:m|min|mins|minute|minutes)\b', t):
@@ -242,8 +249,6 @@ class MarketMatcher:
             or "15-minute" in t
             or "15 mins" in t
             or "kxbtc15m" in t
-            or "kxeth15m" in t
-            or "kxsol15m" in t
         ):
             return True
 
