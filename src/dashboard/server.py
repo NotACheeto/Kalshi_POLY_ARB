@@ -6,20 +6,49 @@ Serves responsive SPA frontend and WebSockets feed on localhost.
 import asyncio
 import json
 import logging
+import secrets
 from pathlib import Path
-from typing import Set
+from typing import Optional, Set
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from src.dashboard.state import DashboardState
 
 logger = logging.getLogger(__name__)
 
 
-def create_dashboard_app(state: DashboardState) -> FastAPI:
+def create_dashboard_app(
+    state: DashboardState,
+    auth_username: Optional[str] = None,
+    auth_password: Optional[str] = None,
+) -> FastAPI:
     app = FastAPI(title="Polymarket <-> Kalshi Arbitrage Dashboard")
     active_websockets: Set[WebSocket] = set()
+
+    security = HTTPBasic() if (auth_username and auth_password) else None
+
+    def verify_auth(credentials: Optional[HTTPBasicCredentials] = Depends(security) if security else None):
+        if not (auth_username and auth_password):
+            return True
+        if not credentials:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+        valid_user = secrets.compare_digest(credentials.username, auth_username)
+        valid_pass = secrets.compare_digest(credentials.password, auth_password)
+        if not (valid_user and valid_pass):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+        return True
+
+    auth_deps = [Depends(verify_auth)] if (auth_username and auth_password) else []
 
     DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -487,11 +516,11 @@ def create_dashboard_app(state: DashboardState) -> FastAPI:
 </html>
 """
 
-    @app.get("/", response_class=HTMLResponse)
+    @app.get("/", response_class=HTMLResponse, dependencies=auth_deps)
     async def index():
         return HTMLResponse(content=DASHBOARD_HTML, status_code=200)
 
-    @app.get("/api/state")
+    @app.get("/api/state", dependencies=auth_deps)
     async def get_state():
         return state.to_dict()
 

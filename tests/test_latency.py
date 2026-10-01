@@ -170,3 +170,33 @@ def test_dashboard_state_telemetry():
     assert len(data["recent_opportunities"]) == 1
     assert len(data["recent_logs"]) == 1
     assert data["uptime_seconds"] >= 0.0
+
+
+def test_dashboard_http_basic_auth():
+    """Verify HTTP Basic Auth secures the dashboard when credentials are set."""
+    from starlette.testclient import TestClient
+    from src.dashboard.server import create_dashboard_app
+
+    dash = DashboardState()
+    # 1. Unauthenticated app (dev mode)
+    app_open = create_dashboard_app(dash, auth_username=None, auth_password=None)
+    client_open = TestClient(app_open)
+    res_open = client_open.get("/api/state")
+    assert res_open.status_code == 200
+
+    # 2. Secured app (production mode)
+    app_secured = create_dashboard_app(dash, auth_username="trader", auth_password="secret_pass_123")
+    client_secured = TestClient(app_secured)
+
+    # Missing credentials -> 401 Unauthorized
+    res_no_auth = client_secured.get("/api/state")
+    assert res_no_auth.status_code == 401
+
+    # Wrong credentials -> 401 Unauthorized
+    res_bad_auth = client_secured.get("/api/state", auth=("trader", "wrong_pass"))
+    assert res_bad_auth.status_code == 401
+
+    # Correct credentials -> 200 OK
+    res_good_auth = client_secured.get("/api/state", auth=("trader", "secret_pass_123"))
+    assert res_good_auth.status_code == 200
+    assert res_good_auth.json()["status"] == "INITIALIZING"

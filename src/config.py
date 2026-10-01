@@ -89,11 +89,20 @@ class ExecutionConfig(BaseModel):
     log_level: str = "INFO"
 
 
+class DashboardConfig(BaseModel):
+    enabled: bool = True
+    port: int = Field(default=8000, ge=1, le=65535)
+    host: str = "0.0.0.0"
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
 class BotConfig(BaseModel):
     api: APIConfig = Field(default_factory=APIConfig)
     arbitrage: ArbitrageGateConfig = Field(default_factory=ArbitrageGateConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     
     # Series whitelist for short duration focus
     short_duration_series_whitelist: List[str] = Field(
@@ -141,5 +150,9 @@ def load_config_from_yaml(yaml_path: str = "config/config.yaml") -> BotConfig:
     config.api.kalshi_api_key_id = os.getenv("KALSHI_API_KEY_ID", config.api.kalshi_api_key_id)
     config.api.kalshi_private_key_path = os.getenv("KALSHI_PRIVATE_KEY_PATH", config.api.kalshi_private_key_path)
     config.api.kalshi_private_key_content = os.getenv("KALSHI_PRIVATE_KEY_CONTENT", config.api.kalshi_private_key_content)
+    
+    # Dashboard credentials
+    config.dashboard.username = os.getenv("DASHBOARD_USERNAME", config.dashboard.username)
+    config.dashboard.password = os.getenv("DASHBOARD_PASSWORD", config.dashboard.password)
     
     return config
