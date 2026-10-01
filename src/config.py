@@ -62,11 +62,12 @@ class ArbitrageGateConfig(BaseModel):
 
 
 class RiskConfig(BaseModel):
-    max_order_size_dollars: float = Field(default=25.0, ge=1.0, le=5000.0)
-    min_order_size_dollars: float = Field(default=2.0, ge=1.0, le=100.0)
-    max_market_exposure_dollars: float = Field(default=50.0, ge=5.0, le=10000.0)
-    max_total_exposure_dollars: float = Field(default=100.0, ge=10.0, le=50000.0)
-    max_daily_loss_dollars: float = Field(default=15.0, ge=1.0, le=5000.0)
+    max_order_size_dollars: float = Field(default=10.0, ge=1.0, le=5000.0)
+    min_order_size_dollars: float = Field(default=1.0, ge=0.5, le=100.0)
+    max_contracts_per_trade: float = Field(default=10.0, ge=1.0, le=10000.0)
+    max_market_exposure_dollars: float = Field(default=10.0, ge=2.0, le=10000.0)
+    max_total_exposure_dollars: float = Field(default=10.0, ge=2.0, le=50000.0)
+    max_daily_loss_dollars: float = Field(default=5.0, ge=1.0, le=5000.0)
     max_consecutive_failures: int = Field(default=3, ge=1, le=10)
     kill_switch_enabled: bool = True
 

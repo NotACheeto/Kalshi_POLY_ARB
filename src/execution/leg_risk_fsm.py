@@ -6,6 +6,7 @@ and unhedged exposure. Recalculates EV immediately before submission.
 
 import asyncio
 import logging
+import math
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Tuple
@@ -79,7 +80,13 @@ class LegRiskFSM:
                 self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": "Quote slipped before submission"})
                 return False, ExecutionState.ABORTED, "Quote slipped or market moved before execution"
 
-            target_qty = opp.executable_quantity
+            # Target execution quantity capped by risk limits (max 10 contracts / max $10 capital)
+            max_by_dollars = math.floor(self.risk_manager.config.max_order_size_dollars / opp.gross_cost_per_unit) if opp.gross_cost_per_unit > 0 else 0
+            max_allowed_qty = min(max_by_dollars, getattr(self.risk_manager.config, "max_contracts_per_trade", 10.0))
+            target_qty = min(opp.executable_quantity, max_allowed_qty)
+            if target_qty < 1.0:
+                self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": "Target quantity below 1 contract"})
+                return False, ExecutionState.ABORTED, "Target quantity below 1 contract"
 
             # 4. Submit Leg 1
             self._transition(opp_id, pair_id, state, ExecutionState.LEG1_SUBMITTED, {"target_qty": target_qty})

@@ -5,6 +5,7 @@ concurrency locking, and automatic kill switch.
 
 import asyncio
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Set, Dict, Optional
 
@@ -59,21 +60,29 @@ class RiskManager:
         if self.kill_switch_active:
             return False, f"Kill switch active: {self.kill_switch_reason}"
 
-        notional = opp.gross_cost_per_unit * opp.executable_quantity
+        # Target size capped by max_order_size_dollars and max_contracts_per_trade
+        max_by_dollars = math.floor(self.config.max_order_size_dollars / opp.gross_cost_per_unit) if opp.gross_cost_per_unit > 0 else 0
+        max_allowed_qty = min(max_by_dollars, getattr(self.config, "max_contracts_per_trade", 10.0))
+        executable_qty = min(opp.executable_quantity, max_allowed_qty)
+
+        if executable_qty < 1.0:
+            return False, f"Executable quantity {executable_qty} below minimum 1 contract"
+
+        notional = opp.gross_cost_per_unit * executable_qty
 
         # 1. Size bounds
         if notional < self.config.min_order_size_dollars:
             return False, f"Trade size ${notional:.2f} below minimum ${self.config.min_order_size_dollars:.2f}"
-        if notional > self.config.max_order_size_dollars:
+        if notional > self.config.max_order_size_dollars + 0.01:
             return False, f"Trade size ${notional:.2f} exceeds maximum ${self.config.max_order_size_dollars:.2f}"
 
         # 2. Exposure limits
         pair_id = opp.market_pair.pair_id
         current_mkt_exp = self.market_exposure.get(pair_id, 0.0)
-        if (current_mkt_exp + notional) > self.config.max_market_exposure_dollars:
+        if (current_mkt_exp + notional) > self.config.max_market_exposure_dollars + 0.01:
             return False, f"Market exposure ${current_mkt_exp + notional:.2f} exceeds limit ${self.config.max_market_exposure_dollars:.2f}"
 
-        if (self.current_global_exposure + notional) > self.config.max_total_exposure_dollars:
+        if (self.current_global_exposure + notional) > self.config.max_total_exposure_dollars + 0.01:
             return False, f"Global exposure ${self.current_global_exposure + notional:.2f} exceeds limit ${self.config.max_total_exposure_dollars:.2f}"
 
         # 3. Daily loss check
