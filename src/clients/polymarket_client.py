@@ -92,7 +92,9 @@ class PolymarketClient:
                 "ascending": "false",
                 "limit": limit,
             }
+            t0 = time.perf_counter()
             resp = await self._gamma_client.get("/markets", params=params)
+            self.last_latency_ms = (time.perf_counter() - t0) * 1000.0
             if resp.status_code == 200:
                 for item in resp.json():
                     norm = self._normalize_market(item)

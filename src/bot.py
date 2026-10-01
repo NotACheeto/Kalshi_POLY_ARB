@@ -157,6 +157,25 @@ class ArbitrageBot:
                 self._total_scans += 1
                 now = datetime.now(timezone.utc)
 
+                # Update general dashboard telemetry continuously
+                if self.dashboard_state:
+                    self.dashboard_state.update_uptime()
+                    self.dashboard_state.telemetry.total_scans = self._total_scans
+                    self.dashboard_state.telemetry.status = "RUNNING"
+                    now_ts = asyncio.get_event_loop().time()
+                    if self._last_scan_time > 0:
+                        dt = now_ts - self._last_scan_time
+                        if dt > 0:
+                            self.dashboard_state.telemetry.scan_frequency_hz = round(1.0 / dt, 1)
+                    self._last_scan_time = now_ts
+
+                    k_lat = getattr(self.kalshi_client, "last_latency_ms", 0.0)
+                    p_lat = getattr(self.poly_client, "last_latency_ms", 0.0)
+                    if k_lat > 0:
+                        self.dashboard_state.telemetry.kalshi_latency_ms = k_lat
+                    if p_lat > 0:
+                        self.dashboard_state.telemetry.poly_latency_ms = p_lat
+
                 # Refresh market pairs every 60s or immediately if any pairs have expired (vital for 15m turnovers)
                 time_since_refresh = asyncio.get_event_loop().time() - last_refresh
                 has_expired = any(p.resolution_time <= now for p in self.matched_pairs)
@@ -165,6 +184,8 @@ class ArbitrageBot:
                     last_refresh = asyncio.get_event_loop().time()
 
                 if not self.matched_pairs:
+                    if self.dashboard_state:
+                        self.dashboard_state.telemetry.active_pair_title = "Scanning exchanges for 15M BTC window..."
                     logger.info("No active matched pairs in current window. Waiting 10s...")
                     await asyncio.sleep(10.0)
                     await self.refresh_market_pairs()

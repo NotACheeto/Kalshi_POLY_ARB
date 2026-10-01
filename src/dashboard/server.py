@@ -409,20 +409,42 @@ def create_dashboard_app(
     <script>
         const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProto}//${window.location.host}/ws`;
-        let ws;
+        async function fetchState() {
+            try {
+                const res = await fetch('/api/state');
+                if (res.ok) {
+                    const data = await res.json();
+                    updateUI(data);
+                }
+            } catch (err) {
+                console.debug('HTTP poll error:', err);
+            }
+        }
 
         function connect() {
-            ws = new WebSocket(wsUrl);
-            ws.onopen = () => console.log('Connected to Arbitrage Dashboard');
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                updateUI(data);
-            };
-            ws.onclose = () => {
-                console.log('WebSocket disconnected, reconnecting in 2s...');
-                setTimeout(connect, 2000);
-            };
+            try {
+                ws = new WebSocket(wsUrl);
+                ws.onopen = () => console.log('Connected to Arbitrage Dashboard');
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    updateUI(data);
+                };
+                ws.onclose = () => {
+                    console.log('WebSocket disconnected, reconnecting in 2s...');
+                    setTimeout(connect, 2000);
+                };
+                ws.onerror = (e) => {
+                    console.debug('WebSocket error:', e);
+                };
+            } catch (e) {
+                console.debug('WebSocket failed, fallback to HTTP poll:', e);
+            }
         }
+
+        // Immediate fetch on load + fallback polling every 1000ms
+        fetchState();
+        setInterval(fetchState, 1000);
+        connect();
 
         function formatUptime(seconds) {
             const hrs = Math.floor(seconds / 3600).toString().padStart(2, '0');
