@@ -290,3 +290,34 @@ def test_reject_15m_eth_and_sol(matcher):
     assert len(matches) == 0, "Ethereum 15m markets must be rejected (Bitcoin only)"
 
 
+def test_reject_sp500_and_non_15m_when_btc_focus_enabled():
+    """Assert that when focus_15m_btc_only=True, S&P 500 and daily strikes are strictly rejected."""
+    now = datetime.now(timezone.utc)
+    res_time = now + timedelta(hours=4)
+
+    poly_spx = NormalizedMarket(
+        platform=Platform.POLYMARKET,
+        market_id="poly_spx_5800",
+        event_id="poly_spx_event",
+        title="S&P 500 above 5800 on Oct 1?",
+        description="",
+        category="FINANCIALS",
+        resolution_time=res_time,
+        settlement_source="S&P Dow Jones",
+    )
+    kalshi_spx = NormalizedMarket(
+        platform=Platform.KALSHI,
+        market_id="KXINX-26OCT01-T5800",
+        event_id="KXINX-26OCT01",
+        title="S&P 500 Close above 5800",
+        description="",
+        category="FINANCIALS",
+        resolution_time=res_time,
+        settlement_source="S&P",
+    )
+
+    matcher_15m = MarketMatcher(focus_15m_btc_only=True)
+    matches = matcher_15m.find_matches([poly_spx], [kalshi_spx], now=now)
+    assert len(matches) == 0, "S&P 500 must be strictly rejected when focus_15m_btc_only is active"
+
+

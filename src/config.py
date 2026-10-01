@@ -104,14 +104,9 @@ class BotConfig(BaseModel):
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     
-    # Series whitelist for short duration focus
+    # Series whitelist for short duration focus (Strictly 15-Minute Bitcoin)
     short_duration_series_whitelist: List[str] = Field(
-        default_factory=lambda: [
-            "KXBTCD", "KXETHD", "KXSOLUSD",
-            "KXINX", "KXNASDAQ",
-            "KXHIGHNY", "KXHIGHCHI", "KXHIGHLAS", "KXHIGHMIA",
-            "KXNFLGAME", "KXNBAGAME", "KXMLBGAME"
-        ]
+        default_factory=lambda: ["KXBTC15M"]
     )
 
     @field_validator("execution")

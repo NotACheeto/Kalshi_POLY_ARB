@@ -63,8 +63,9 @@ class MarketMatcher:
     Only pairs contracts that are proven mathematically and legally equivalent.
     """
 
-    def __init__(self, max_hours_to_resolution: float = 24.0):
+    def __init__(self, max_hours_to_resolution: float = 24.0, focus_15m_btc_only: bool = False):
         self.max_hours_to_resolution = max_hours_to_resolution
+        self.focus_15m_btc_only = focus_15m_btc_only
 
     def find_matches(
         self,
@@ -118,6 +119,16 @@ class MarketMatcher:
         kalshi: NormalizedMarket,
     ) -> Optional[MatchedMarketPair]:
         """Verify strict equivalence between two markets."""
+        # When 15M Bitcoin focus is enabled, strictly restrict to 15-minute Bitcoin Up/Down
+        if self.focus_15m_btc_only:
+            if poly.category.upper() != "CRYPTO" or kalshi.category.upper() != "CRYPTO":
+                return None
+            is_poly_15m = self._is_15m_crypto(poly)
+            is_kalshi_15m = self._is_15m_crypto(kalshi)
+            if is_poly_15m and is_kalshi_15m:
+                return self._match_crypto_15m(poly, kalshi)
+            return None
+
         # 1. Category must match
         if poly.category.upper() != kalshi.category.upper():
             return None

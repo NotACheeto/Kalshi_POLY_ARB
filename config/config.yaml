@@ -55,16 +55,4 @@ execution:
   log_level: "INFO"
 
 short_duration_series_whitelist:
-  - "KXBTC15M"     # Bitcoin 15-Minute Recurring Up/Down Fixings (BTC only)
-  - "KXBTCD"       # Bitcoin Daily Price Fixings
-  - "KXETHD"       # Ethereum Daily Price Fixings
-  - "KXSOLUSD"     # Solana Daily Price Fixings
-  - "KXINX"        # S&P 500 Daily Index Close
-  - "KXNASDAQ"     # Nasdaq-100 Daily Index Close
-  - "KXHIGHNY"     # NYC Daily High Temperature
-  - "KXHIGHCHI"    # Chicago Daily High Temperature
-  - "KXHIGHLAS"    # Las Vegas Daily High Temperature
-  - "KXHIGHMIA"    # Miami Daily High Temperature
-  - "KXNFLGAME"    # NFL Games today
-  - "KXNBAGAME"    # NBA Games today
-  - "KXMLBGAME"    # MLB Games today
+  - "KXBTC15M"     # Strictly Bitcoin 15-Minute Recurring Up/Down Fixings ONLY

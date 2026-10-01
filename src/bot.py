@@ -47,8 +47,11 @@ class ArbitrageBot:
         self.kalshi_client = KalshiClient(config.api, dry_run=config.execution.dry_run)
         self.poly_client = PolymarketClient(config.api, dry_run=config.execution.dry_run)
 
-        # Initialize matching and math engines
-        self.matcher = MarketMatcher(max_hours_to_resolution=config.arbitrage.max_hours_to_resolution)
+        # Initialize matching and math engines (Strictly 15-Minute Bitcoin Focus)
+        self.matcher = MarketMatcher(
+            max_hours_to_resolution=config.arbitrage.max_hours_to_resolution,
+            focus_15m_btc_only=True,
+        )
         self.fee_calc = FeeCalculator(
             poly_taker_fee_pct=config.arbitrage.polymarket_taker_fee_pct,
             kalshi_taker_multiplier=config.arbitrage.kalshi_taker_fee_multiplier,
