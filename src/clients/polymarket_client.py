@@ -110,16 +110,33 @@ class PolymarketClient:
             resp_ev = await self._gamma_client.get("/events", params=event_params)
             if resp_ev.status_code == 200:
                 for ev in resp_ev.json():
+                    slug = ev.get("slug", "")
                     for child in ev.get("markets", []):
-                        norm = self._normalize_market(child)
+                        norm = self._normalize_market(child, parent_slug=slug)
                         if norm:
                             markets_by_id[norm.market_id] = norm
         except Exception as e:
             logger.warning(f"Error fetching Polymarket /events: {e}")
 
+        # 3. Explicitly fetch 15-minute recurring crypto events via tag_slug=15M
+        try:
+            resp_15m = await self._gamma_client.get(
+                "/events",
+                params={"tag_slug": "15M", "closed": "false", "limit": 50},
+            )
+            if resp_15m.status_code == 200:
+                for ev in resp_15m.json():
+                    slug = ev.get("slug", "")
+                    for child in ev.get("markets", []):
+                        norm = self._normalize_market(child, parent_slug=slug)
+                        if norm:
+                            markets_by_id[norm.market_id] = norm
+        except Exception as e:
+            logger.warning(f"Error fetching Polymarket 15M events: {e}")
+
         return list(markets_by_id.values())
 
-    def _normalize_market(self, m: Dict[str, Any]) -> Optional[NormalizedMarket]:
+    def _normalize_market(self, m: Dict[str, Any], parent_slug: str = "") -> Optional[NormalizedMarket]:
         """Convert Polymarket Gamma API JSON into NormalizedMarket."""
         token_ids_raw = m.get("clobTokenIds")
         if not token_ids_raw:
@@ -152,7 +169,7 @@ class PolymarketClient:
             return None
 
         q = m.get("question", "")
-        slug = m.get("slug", "").lower()
+        slug = (parent_slug or m.get("slug") or "").lower()
 
         # Categorization
         if any(k in q.lower() or k in slug for k in ["bitcoin", "btc", "ethereum", "eth", "solana", "crypto"]):
@@ -171,7 +188,7 @@ class PolymarketClient:
         return NormalizedMarket(
             platform=Platform.POLYMARKET,
             market_id=m.get("conditionId") or m.get("id") or yes_token_id,
-            event_id=str(m.get("id", "")),
+            event_id=parent_slug or str(m.get("id", "")),
             title=q,
             description=m.get("description", ""),
             category=category,

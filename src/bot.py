@@ -155,15 +155,18 @@ class ArbitrageBot:
                 self._total_scans += 1
                 now = datetime.now(timezone.utc)
 
-                # Periodically re-discover new daily markets (every 10 minutes)
-                if (asyncio.get_event_loop().time() - last_refresh) > 600:
+                # Refresh market pairs every 60s or immediately if any pairs have expired (vital for 15m turnovers)
+                time_since_refresh = asyncio.get_event_loop().time() - last_refresh
+                has_expired = any(p.resolution_time <= now for p in self.matched_pairs)
+                if time_since_refresh > 60.0 or has_expired:
                     await self.refresh_market_pairs()
                     last_refresh = asyncio.get_event_loop().time()
 
                 if not self.matched_pairs:
-                    logger.info("No active matched pairs in current window. Waiting 15s...")
-                    await asyncio.sleep(15.0)
+                    logger.info("No active matched pairs in current window. Waiting 10s...")
+                    await asyncio.sleep(10.0)
                     await self.refresh_market_pairs()
+                    last_refresh = asyncio.get_event_loop().time()
                     continue
 
                 # Evaluate all matched pairs concurrently

@@ -20,7 +20,7 @@ arbitrage:
   
   # Duration Focus: Markets resolving in 24 hours or less
   max_hours_to_resolution: 24.0   # Max 24 hours to resolution (high turnover, low duration risk)
-  min_minutes_to_resolution: 5.0  # Stop trading in the final 5 minutes before settlement
+  min_minutes_to_resolution: 1.0  # Stop trading in the final 1.0 minute before settlement (safe buffer)
   
   # Stale Quote Protection
   max_quote_age_seconds: 2.0      # Reject market quotes older than 2.0 seconds
@@ -55,6 +55,9 @@ execution:
   log_level: "INFO"
 
 short_duration_series_whitelist:
+  - "KXBTC15M"     # Bitcoin 15-Minute Recurring Up/Down Fixings
+  - "KXETH15M"     # Ethereum 15-Minute Recurring Up/Down Fixings
+  - "KXSOL15M"     # Solana 15-Minute Recurring Up/Down Fixings
   - "KXBTCD"       # Bitcoin Daily Price Fixings
   - "KXETHD"       # Ethereum Daily Price Fixings
   - "KXSOLUSD"     # Solana Daily Price Fixings

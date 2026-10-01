@@ -141,13 +141,20 @@ class MarketMatcher:
         kalshi: NormalizedMarket,
     ) -> Optional[MatchedMarketPair]:
         """
-        Match crypto daily price threshold markets (BTC, ETH, SOL).
-        Requires:
-        - Same underlying coin (e.g. BTC)
-        - Same resolution date (calendar day UTC)
-        - Exact same strike threshold (e.g. $86,000)
-        - Same condition ("above / at or above")
+        Match crypto markets across Polymarket and Kalshi:
+        1. 15-Minute Recurring Up/Down windows (e.g. KXBTC15M <-> btc-updown-15m).
+        2. Daily price threshold / strike fixings (e.g. KXBTCD <-> BTC above $X).
         """
+        # 1. Check for 15-minute recurring Up/Down markets
+        is_poly_15m = self._is_15m_crypto(poly)
+        is_kalshi_15m = self._is_15m_crypto(kalshi)
+
+        if is_poly_15m or is_kalshi_15m:
+            if is_poly_15m and is_kalshi_15m:
+                return self._match_crypto_15m(poly, kalshi)
+            return None  # One is 15m, other is not -> NEVER match
+
+        # 2. Daily price threshold / strike fixings
         # Extract coin
         poly_coin = self._extract_crypto_coin(poly.title)
         kalshi_coin = self._extract_crypto_coin(kalshi.title + " " + kalshi.event_id)
@@ -158,7 +165,7 @@ class MarketMatcher:
         if poly.resolution_time.date() != kalshi.resolution_time.date():
             return None
 
-        # Expiration hour should be close (within 1 hour)
+        # Expiration hour should be close (within 1.5 hours)
         diff_hours = abs((poly.resolution_time - kalshi.resolution_time).total_seconds()) / 3600.0
         if diff_hours > 1.5:
             return None
@@ -186,6 +193,70 @@ class MarketMatcher:
             match_confidence=1.0,
             verified=True,
         )
+
+    def _match_crypto_15m(
+        self,
+        poly: NormalizedMarket,
+        kalshi: NormalizedMarket,
+    ) -> Optional[MatchedMarketPair]:
+        """
+        Deterministic matcher for 15-minute Up/Down recurring crypto markets.
+        Both contracts measure whether the coin price at the end of the 15-minute
+        window is >= the price at the start of the window.
+        """
+        poly_coin = self._extract_crypto_coin(poly.title + " " + poly.market_id)
+        kalshi_coin = self._extract_crypto_coin(kalshi.title + " " + kalshi.event_id + " " + kalshi.market_id)
+        if not poly_coin or poly_coin != kalshi_coin:
+            return None
+
+        # Expiration time must align within 60 seconds (both close at the exact 15m mark)
+        diff_sec = abs((poly.resolution_time - kalshi.resolution_time).total_seconds())
+        if diff_sec > 60.0:
+            return None
+
+        pair_id = f"poly:{poly.market_id}|kalshi:{kalshi.market_id}"
+        return MatchedMarketPair(
+            pair_id=pair_id,
+            poly_market=poly,
+            kalshi_market=kalshi,
+            underlying_entity=f"CRYPTO_{poly_coin}_15M",
+            target_metric="UP_OR_DOWN_15M",
+            strike_value=0.0,
+            resolution_time=min(poly.resolution_time, kalshi.resolution_time),
+            match_confidence=1.0,
+            verified=True,
+        )
+
+    @staticmethod
+    def _is_15m_crypto(market: NormalizedMarket) -> bool:
+        """Identify if a contract is a 15-minute recurring Up/Down market."""
+        t = f"{market.title} {market.market_id} {market.event_id} {market.description}".lower()
+
+        # Reject explicit 5m markets
+        if "-5m" in t or "updown-5m" in t or re.search(r'\b5\s*(?:m|min|mins|minute|minutes)\b', t):
+            return False
+
+        if (
+            "15m" in t
+            or "15 min" in t
+            or "15-minute" in t
+            or "15 mins" in t
+            or "kxbtc15m" in t
+            or "kxeth15m" in t
+            or "kxsol15m" in t
+        ):
+            return True
+
+        # Check time range in title, e.g. 1:45AM-2:00AM
+        match = re.search(r'(\d{1,2}):(\d{2})\s*([ap]m)\s*-\s*(\d{1,2}):(\d{2})\s*([ap]m)', t)
+        if match:
+            h1, m1, p1, h2, m2, p2 = match.groups()
+            t1 = (int(h1) % 12 + (12 if p1 == 'pm' else 0)) * 60 + int(m1)
+            t2 = (int(h2) % 12 + (12 if p2 == 'pm' else 0)) * 60 + int(m2)
+            if (t2 - t1) % 1440 == 15:
+                return True
+
+        return False
 
     def _match_index(
         self,
