@@ -1,0 +1,69 @@
+# =================================================================
+# POLYMARKET <-> KALSHI PRODUCTION ARBITRAGE BOT CONFIGURATION
+# =================================================================
+# Capital preservation and correctness take priority over trade frequency.
+# DRY RUN is enabled by default. Live execution requires explicit confirmation.
+
+api:
+  polymarket_clob_url: "https://clob.polymarket.com"
+  polymarket_gamma_url: "https://gamma-api.polymarket.com"
+  polymarket_ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+  kalshi_base_url: "https://api.elections.kalshi.com/trade-api/v2"
+  timeout_seconds: 8.0
+  max_retries: 2
+  retry_delay_seconds: 0.25
+
+arbitrage:
+  # Hard Positive-EV Gate Thresholds
+  min_net_edge_pct: 0.015          # Require 1.5% net profit after ALL fees and slippage
+  min_net_profit_dollars: 0.25     # Minimum $0.25 net profit per bundle trade
+  
+  # Duration Focus: Markets resolving in 24 hours or less
+  max_hours_to_resolution: 24.0   # Max 24 hours to resolution (high turnover, low duration risk)
+  min_minutes_to_resolution: 5.0  # Stop trading in the final 5 minutes before settlement
+  
+  # Stale Quote Protection
+  max_quote_age_seconds: 2.0      # Reject market quotes older than 2.0 seconds
+  
+  # Friction & Leg Execution Buffers
+  slippage_buffer_per_leg: 0.005  # 0.5% price buffer per leg
+  adverse_leg_buffer_cents: 0.005 # $0.005 per share safety margin for execution friction
+  annual_capital_cost_rate: 0.05  # 5% annual cost of locked capital
+  
+  # Fee Models
+  polymarket_taker_fee_pct: 0.0   # 0% standard Polymarket taker fee (set > 0 for fee markets)
+  kalshi_taker_fee_multiplier: 0.07 # Official Kalshi taker quadratic fee multiplier
+  kalshi_fee_cap_dollars: 0.02    # $0.02 maximum fee cap per contract
+
+risk:
+  max_order_size_dollars: 25.0    # Maximum capital per trade bundle
+  min_order_size_dollars: 2.0     # Minimum trade size
+  max_market_exposure_dollars: 50.0  # Max exposure per single market pair
+  max_total_exposure_dollars: 100.0  # Max global open exposure across all markets
+  max_daily_loss_dollars: 15.0    # Stop trading if cumulative daily loss exceeds $15.00
+  max_consecutive_failures: 3     # Trigger kill switch after 3 consecutive failed executions
+  kill_switch_enabled: true
+
+execution:
+  dry_run: true                   # DEFAULT: Simulates execution with live real-time market data
+  live_trading_confirmed: false   # SAFETY: Must be set to true alongside dry_run: false for live orders
+  leg1_fill_timeout_seconds: 2.5  # Timeout waiting for Leg 1 fill before cancelling
+  leg2_fill_timeout_seconds: 3.0  # Timeout waiting for Leg 2 fill before entering HEDGING
+  auto_unwind_unhedged_leg: true  # Automatically unwind Leg 1 if Leg 2 fails to execute
+  max_unwind_loss_pct: 0.03       # Max tolerated loss on emergency market unwind (3%)
+  journal_path: "logs/execution_journal.jsonl"
+  log_level: "INFO"
+
+short_duration_series_whitelist:
+  - "KXBTCD"       # Bitcoin Daily Price Fixings
+  - "KXETHD"       # Ethereum Daily Price Fixings
+  - "KXSOLUSD"     # Solana Daily Price Fixings
+  - "KXINX"        # S&P 500 Daily Index Close
+  - "KXNASDAQ"     # Nasdaq-100 Daily Index Close
+  - "KXHIGHNY"     # NYC Daily High Temperature
+  - "KXHIGHCHI"    # Chicago Daily High Temperature
+  - "KXHIGHLAS"    # Las Vegas Daily High Temperature
+  - "KXHIGHMIA"    # Miami Daily High Temperature
+  - "KXNFLGAME"    # NFL Games today
+  - "KXNBAGAME"    # NBA Games today
+  - "KXMLBGAME"    # MLB Games today

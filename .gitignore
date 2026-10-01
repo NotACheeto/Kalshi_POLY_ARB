@@ -1,0 +1,60 @@
+# Environment, API Keys, Secrets, and IDs
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.secret
+*.pkcs8
+credentials.*
+api_keys*
+secrets*
+*key.pem
+config/kalshi_key.pem
+
+# Private State, Logs, Journals
+logs/
+*.log
+*.jsonl
+execution_journal.jsonl
+
+# Scratch, Testing, Reference
+scratch/
+scratch_*.py
+reference_repo/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
