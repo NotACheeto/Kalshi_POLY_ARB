@@ -239,10 +239,22 @@ class ArbitrageBot:
                     t.dir1_cost = poly_ob.best_yes_ask + kalshi_ob.best_no_ask
                 if poly_ob.best_no_ask and kalshi_ob.best_yes_ask:
                     t.dir2_cost = poly_ob.best_no_ask + kalshi_ob.best_yes_ask
+                valid_costs = [c for c in [t.dir1_cost, t.dir2_cost] if c is not None]
+                if valid_costs:
+                    t.best_cost = round(min(valid_costs), 4)
+                    t.best_gross_edge = round(1.0 - t.best_cost, 4)
 
             opp = self.ev_calc.evaluate_pair(
                 pair, poly_ob, kalshi_ob, now=now, latency_ms=combined_latency
             )
+
+            if self.dashboard_state:
+                if opp is not None and opp.is_positive_ev:
+                    self.dashboard_state.telemetry.opportunity_active = True
+                    self.dashboard_state.telemetry.best_conservative_net_edge = opp.net_edge_pct
+                else:
+                    self.dashboard_state.telemetry.opportunity_active = False
+                    self.dashboard_state.telemetry.best_conservative_net_edge = 0.0
 
             if opp is not None and opp.is_positive_ev:
                 self._total_opportunities_found += 1

@@ -491,6 +491,10 @@ def create_dashboard_app(state: DashboardState) -> FastAPI:
     async def index():
         return HTMLResponse(content=DASHBOARD_HTML, status_code=200)
 
+    @app.get("/api/state")
+    async def get_state():
+        return state.to_dict()
+
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
         await websocket.accept()

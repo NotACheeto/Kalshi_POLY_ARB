@@ -137,7 +137,7 @@ async def main_async() -> None:
             server = uvicorn.Server(server_cfg)
             dashboard_task = asyncio.create_task(server.serve())
             logger.info("=" * 70)
-            logger.info(f"🌐 REAL-TIME DASHBOARD ACTIVE: http://localhost:{args.dashboard_port}")
+            logger.info(f"[DASHBOARD] REAL-TIME DASHBOARD ACTIVE: http://localhost:{args.dashboard_port}")
             logger.info("=" * 70)
         except Exception as e:
             logger.warning(f"Could not initialize dashboard server: {e}")

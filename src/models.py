@@ -132,6 +132,18 @@ class NormalizedOrderBook:
     def best_no_ask_size(self) -> Optional[float]:
         return self.no_asks[0].size if self.no_asks else None
 
+    @property
+    def yes_spread(self) -> Optional[float]:
+        if self.best_yes_ask is not None and self.best_yes_bid is not None:
+            return round(self.best_yes_ask - self.best_yes_bid, 4)
+        return None
+
+    @property
+    def no_spread(self) -> Optional[float]:
+        if self.best_no_ask is not None and self.best_no_bid is not None:
+            return round(self.best_no_ask - self.best_no_bid, 4)
+        return None
+
     def age_seconds(self, now: Optional[datetime] = None) -> float:
         if now is None:
             now = utc_now()
