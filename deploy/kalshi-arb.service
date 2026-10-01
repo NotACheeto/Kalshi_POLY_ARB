@@ -1,0 +1,18 @@
+[Unit]
+Description=Polymarket <-> Kalshi Arbitrage Bot & Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Kalshi_POLY_ARB
+EnvironmentFile=/home/ubuntu/Kalshi_POLY_ARB/.env
+ExecStart=/home/ubuntu/Kalshi_POLY_ARB/venv/bin/python main.py --dry-run --dashboard --dashboard-port 8000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
