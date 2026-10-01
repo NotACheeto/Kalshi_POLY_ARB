@@ -219,6 +219,7 @@ class ArbitrageOpportunity:
     annualized_return: float     # Annualized ROI based on hours to expiration
     hours_to_resolution: float
     detected_at: datetime = field(default_factory=utc_now)
+    latency_buffer_total: float = 0.0
     
     @property
     def is_positive_ev(self) -> bool:

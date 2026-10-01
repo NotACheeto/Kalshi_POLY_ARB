@@ -38,6 +38,7 @@ class EVCalculator:
         poly_ob: NormalizedOrderBook,
         kalshi_ob: NormalizedOrderBook,
         now: Optional[datetime] = None,
+        latency_ms: float = 0.0,
     ) -> Optional[ArbitrageOpportunity]:
         """
         Evaluate a matched market pair for arbitrage opportunities in both directions.
@@ -84,6 +85,7 @@ class EVCalculator:
             leg2_token_id=pair.kalshi_market.market_id,
             hours_to_res=hours_to_res,
             now=now,
+            latency_ms=latency_ms,
         )
         if opp1 is not None and opp1.is_positive_ev:
             opps.append(opp1)
@@ -103,6 +105,7 @@ class EVCalculator:
             leg2_token_id=pair.kalshi_market.market_id,
             hours_to_res=hours_to_res,
             now=now,
+            latency_ms=latency_ms,
         )
         if opp2 is not None and opp2.is_positive_ev:
             opps.append(opp2)
@@ -128,6 +131,7 @@ class EVCalculator:
         leg2_token_id: Optional[str],
         hours_to_res: float,
         now: datetime,
+        latency_ms: float = 0.0,
     ) -> Optional[ArbitrageOpportunity]:
         """Calculates exact EV for a specific synthetic bundle direction."""
         if leg1_price is None or leg2_price is None or leg1_size is None or leg2_size is None:
@@ -173,12 +177,21 @@ class EVCalculator:
         # 3. Capital opportunity cost: (gross_outlay * r_annual * hours / 8760)
         capital_cost_total = gross_capital_outlay * self.config.annual_capital_cost_rate * (hours_to_res / 8760.0)
 
+        # 4. Dynamic latency friction buffer:
+        # Accounts for execution lag / quote decay when round-trip latency > 100ms
+        latency_buffer_total = 0.0
+        if latency_ms > 100.0:
+            # $0.002 per contract per 100ms of excess network latency
+            latency_rate = ((latency_ms - 100.0) / 100.0) * 0.002
+            latency_buffer_total = executable_qty * latency_rate
+
         total_costs = (
             poly_fee_total
             + kalshi_fee_total
             + slippage_buffer_total
             + adverse_buffer_total
             + capital_cost_total
+            + latency_buffer_total
         )
 
         gross_profit_total = gross_edge_per_unit * executable_qty
@@ -237,6 +250,7 @@ class EVCalculator:
             slippage_buffer_total=slippage_buffer_total,
             capital_cost_total=capital_cost_total,
             adverse_buffer_total=adverse_buffer_total,
+            latency_buffer_total=latency_buffer_total,
             total_costs=total_costs,
             net_profit=conservative_net_profit,
             net_edge_pct=conservative_net_edge_pct,

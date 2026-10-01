@@ -38,6 +38,7 @@ class KalshiClient:
         self.base_url = config.kalshi_base_url.rstrip("/")
         self._client: Optional[httpx.AsyncClient] = None
         self._rsa_key = None
+        self.last_latency_ms: float = 30.0
         self._init_auth()
 
     def _init_auth(self) -> None:
@@ -137,6 +138,7 @@ class KalshiClient:
 
         for attempt in range(self.config.max_retries + 1):
             try:
+                t0 = time.perf_counter()
                 response = await self._client.request(
                     method=method,
                     url=path,
@@ -144,6 +146,7 @@ class KalshiClient:
                     json=json_body,
                     headers=headers,
                 )
+                self.last_latency_ms = (time.perf_counter() - t0) * 1000.0
                 if response.status_code == 429:
                     retry_after = float(response.headers.get("Retry-After", 1.0))
                     logger.warning(f"Kalshi 429 Rate Limit. Backing off for {retry_after}s")

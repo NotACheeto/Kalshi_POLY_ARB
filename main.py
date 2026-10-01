@@ -64,6 +64,25 @@ def parse_arguments() -> argparse.Namespace:
         default=False,
         help="Perform a single discovery and evaluation pass, then exit",
     )
+    parser.add_argument(
+        "--dashboard",
+        dest="dashboard",
+        action="store_true",
+        default=True,
+        help="Launch the real-time web dashboard on localhost:8000 (Default: True)",
+    )
+    parser.add_argument(
+        "--no-dashboard",
+        dest="dashboard",
+        action="store_false",
+        help="Disable the web dashboard",
+    )
+    parser.add_argument(
+        "--dashboard-port",
+        type=int,
+        default=8000,
+        help="Port for the web dashboard (default: 8000)",
+    )
     return parser.parse_args()
 
 
@@ -96,7 +115,34 @@ async def main_async() -> None:
     setup_logging(config.execution.log_level)
     logger = logging.getLogger("Main")
 
-    bot = ArbitrageBot(config)
+    dashboard_state = None
+    dashboard_task = None
+    if args.dashboard and not args.scan_once:
+        try:
+            from src.dashboard.state import DashboardState
+            from src.dashboard.server import create_dashboard_app
+            import uvicorn
+            dashboard_state = DashboardState()
+            dashboard_state.telemetry.mode = "DRY RUN (Paper Trading)" if config.execution.dry_run else "LIVE TRADING"
+            dashboard_state.telemetry.max_daily_loss_dollars = config.risk.max_daily_loss_dollars
+            dashboard_state.telemetry.max_exposure_dollars = config.risk.max_total_exposure_dollars
+            app = create_dashboard_app(dashboard_state)
+            server_cfg = uvicorn.Config(
+                app=app,
+                host="0.0.0.0",
+                port=args.dashboard_port,
+                log_level="warning",
+                access_log=False,
+            )
+            server = uvicorn.Server(server_cfg)
+            dashboard_task = asyncio.create_task(server.serve())
+            logger.info("=" * 70)
+            logger.info(f"🌐 REAL-TIME DASHBOARD ACTIVE: http://localhost:{args.dashboard_port}")
+            logger.info("=" * 70)
+        except Exception as e:
+            logger.warning(f"Could not initialize dashboard server: {e}")
+
+    bot = ArbitrageBot(config, dashboard_state=dashboard_state)
 
     # Register OS signal handlers for graceful shutdown
     loop = asyncio.get_running_loop()
@@ -135,6 +181,8 @@ async def main_async() -> None:
         logger.info("Keyboard interrupt received.")
     finally:
         await bot.stop()
+        if dashboard_task:
+            dashboard_task.cancel()
 
 
 if __name__ == "__main__":

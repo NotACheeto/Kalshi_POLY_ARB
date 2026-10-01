@@ -37,8 +37,9 @@ class ArbitrageBot:
     Focuses on short-duration markets (< 24 hours to resolution).
     """
 
-    def __init__(self, config: BotConfig):
+    def __init__(self, config: BotConfig, dashboard_state: Optional[Any] = None):
         self.config = config
+        self.dashboard_state = dashboard_state
         self._running = False
         self._shutdown_event = asyncio.Event()
 
@@ -72,6 +73,7 @@ class ArbitrageBot:
         self._total_opportunities_found: int = 0
         self._total_trades_executed: int = 0
         self._total_simulated_pnl: float = 0.0
+        self._last_scan_time: float = 0.0
 
     async def start(self) -> None:
         """Start the arbitrage bot lifecycle."""
@@ -193,7 +195,55 @@ class ArbitrageBot:
             if poly_ob is None or kalshi_ob is None:
                 return
 
-            opp = self.ev_calc.evaluate_pair(pair, poly_ob, kalshi_ob, now=now)
+            # Latency measurement
+            kalshi_lat = getattr(self.kalshi_client, "last_latency_ms", 30.0)
+            poly_lat = getattr(self.poly_client, "last_latency_ms", 120.0)
+            combined_latency = max(kalshi_lat, poly_lat)
+
+            # Update dashboard state telemetry
+            if self.dashboard_state:
+                t = self.dashboard_state.telemetry
+                t.status = "RUNNING"
+                t.kalshi_latency_ms = kalshi_lat
+                t.poly_latency_ms = poly_lat
+                t.total_scans = self._total_scans
+                
+                # Scan frequency
+                now_ts = asyncio.get_event_loop().time()
+                if self._last_scan_time > 0:
+                    dt = now_ts - self._last_scan_time
+                    if dt > 0:
+                        t.scan_frequency_hz = round(1.0 / dt, 1)
+                self._last_scan_time = now_ts
+
+                # Active Pair info
+                t.active_pair_id = pair.pair_id
+                t.active_pair_title = pair.poly_market.title
+                t.seconds_to_expiration = max(0.0, (pair.resolution_time - now).total_seconds())
+
+                # Books
+                t.kalshi_yes_bid = kalshi_ob.best_yes_bid
+                t.kalshi_yes_ask = kalshi_ob.best_yes_ask
+                t.kalshi_no_bid = kalshi_ob.best_no_bid
+                t.kalshi_no_ask = kalshi_ob.best_no_ask
+                t.kalshi_spread = kalshi_ob.yes_spread
+
+                t.poly_yes_bid = poly_ob.best_yes_bid
+                t.poly_yes_ask = poly_ob.best_yes_ask
+                t.poly_no_bid = poly_ob.best_no_bid
+                t.poly_no_ask = poly_ob.best_no_ask
+                t.poly_spread = poly_ob.yes_spread
+
+                # Synthetic bundle costs
+                if poly_ob.best_yes_ask and kalshi_ob.best_no_ask:
+                    t.dir1_cost = poly_ob.best_yes_ask + kalshi_ob.best_no_ask
+                if poly_ob.best_no_ask and kalshi_ob.best_yes_ask:
+                    t.dir2_cost = poly_ob.best_no_ask + kalshi_ob.best_yes_ask
+
+            opp = self.ev_calc.evaluate_pair(
+                pair, poly_ob, kalshi_ob, now=now, latency_ms=combined_latency
+            )
+
             if opp is not None and opp.is_positive_ev:
                 self._total_opportunities_found += 1
                 logger.info(
@@ -205,11 +255,22 @@ class ArbitrageBot:
                     f"Leg 2: {opp.leg2.side.value} {opp.leg2.token_type.value} on {opp.leg2.platform.value} @ ${opp.leg2.executable_price:.4f}\n"
                     f"Size: {opp.executable_quantity:.1f} contracts | Gross Cost: ${opp.gross_cost_per_unit:.4f}\n"
                     f"Fees: Poly ${opp.poly_fee_total:.2f}, Kalshi ${opp.kalshi_fee_total:.2f}\n"
-                    f"Friction Buffers: Slippage ${opp.slippage_buffer_total:.2f}, Adverse ${opp.adverse_buffer_total:.2f}\n"
+                    f"Friction Buffers: Slippage ${opp.slippage_buffer_total:.2f}, Adverse ${opp.adverse_buffer_total:.2f}, Latency ${opp.latency_buffer_total:.2f}\n"
                     f"Conservative Net Profit: ${opp.net_profit:.2f} ({opp.net_edge_pct:.2%})\n"
                     f"Annualized Return: {opp.annualized_return:.1f}%\n"
                     f"{'='*70}"
                 )
+
+                if self.dashboard_state:
+                    self.dashboard_state.record_opportunity({
+                        "time": now.strftime("%H:%M:%S"),
+                        "direction": f"{opp.leg1.platform.value.upper()} {opp.leg1.token_type.value} + {opp.leg2.platform.value.upper()} {opp.leg2.token_type.value}",
+                        "gross_cost": opp.gross_cost_per_unit,
+                        "net_profit": opp.net_profit,
+                        "net_edge": opp.net_edge_pct,
+                        "size": opp.executable_quantity,
+                        "status": "DETECTED",
+                    })
 
                 # Dispatch to execution FSM
                 success, final_state, msg = await self.fsm.execute_opportunity(opp)
@@ -217,8 +278,14 @@ class ArbitrageBot:
                     self._total_trades_executed += 1
                     self._total_simulated_pnl += opp.net_profit
                     logger.info(f"Execution Succeeded: {msg}")
+                    if self.dashboard_state:
+                        self.dashboard_state.telemetry.daily_pnl_dollars = self._total_simulated_pnl
+                        self.dashboard_state.telemetry.total_trades_executed = self._total_trades_executed
+                        self.dashboard_state.log_message(f"Trade executed: {opp.leg1.token_type.value}/{opp.leg2.token_type.value} (+${opp.net_profit:.2f})")
                 else:
                     logger.warning(f"Execution Incomplete or Aborted: {msg}")
+                    if self.dashboard_state:
+                        self.dashboard_state.log_message(f"Execution aborted: {msg}")
 
         except Exception as e:
             logger.debug(f"Error evaluating pair {pair.pair_id}: {e}")

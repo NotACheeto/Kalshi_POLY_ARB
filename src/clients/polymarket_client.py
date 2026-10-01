@@ -4,6 +4,7 @@ Integrates Gamma API (market metadata) and CLOB API (order books, EIP-712 orders
 Optimized for connection reuse, fast JSON parsing, and dry-run safety.
 """
 
+import time
 import json
 import logging
 from datetime import datetime, timezone
@@ -38,6 +39,7 @@ class PolymarketClient:
         self.gamma_url = config.polymarket_gamma_url.rstrip("/")
         self._clob_client: Optional[httpx.AsyncClient] = None
         self._gamma_client: Optional[httpx.AsyncClient] = None
+        self.last_latency_ms: float = 120.0
 
     async def connect(self) -> None:
         """Initialize persistent HTTP clients with connection pooling."""
@@ -212,6 +214,7 @@ class PolymarketClient:
             return None
 
         try:
+            t0 = time.perf_counter()
             # Fetch YES token book
             yes_resp = await self._clob_client.get("/book", params={"token_id": market.yes_token_id})
             yes_resp.raise_for_status()
@@ -221,6 +224,7 @@ class PolymarketClient:
             no_resp = await self._clob_client.get("/book", params={"token_id": market.no_token_id})
             no_resp.raise_for_status()
             no_data = no_resp.json()
+            self.last_latency_ms = (time.perf_counter() - t0) * 1000.0
 
             yes_bids = [
                 PriceLevel(price=float(lvl["price"]), size=float(lvl["size"]))
