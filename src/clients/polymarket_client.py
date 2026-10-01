@@ -6,6 +6,7 @@ Optimized for connection reuse, fast JSON parsing, and dry-run safety.
 
 import time
 import json
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Tuple
@@ -217,14 +218,13 @@ class PolymarketClient:
 
         try:
             t0 = time.perf_counter()
-            # Fetch YES token book
-            yes_resp = await self._clob_client.get("/book", params={"token_id": market.yes_token_id})
+            # Fetch YES and NO token books concurrently in parallel for lowest latency
+            yes_task = self._clob_client.get("/book", params={"token_id": market.yes_token_id})
+            no_task = self._clob_client.get("/book", params={"token_id": market.no_token_id})
+            yes_resp, no_resp = await asyncio.gather(yes_task, no_task)
             yes_resp.raise_for_status()
-            yes_data = yes_resp.json()
-
-            # Fetch NO token book
-            no_resp = await self._clob_client.get("/book", params={"token_id": market.no_token_id})
             no_resp.raise_for_status()
+            yes_data = yes_resp.json()
             no_data = no_resp.json()
             self.last_latency_ms = (time.perf_counter() - t0) * 1000.0
 

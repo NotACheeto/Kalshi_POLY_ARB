@@ -92,6 +92,13 @@ class DashboardState:
         if len(self.telemetry.recent_trades) > 25:
             self.telemetry.recent_trades.pop()
 
+    def reset_pnl(self) -> None:
+        """Reset realized PnL and trade history on demand."""
+        self.telemetry.daily_pnl_dollars = 0.0
+        self.telemetry.total_trades_executed = 0
+        self.telemetry.recent_trades.clear()
+        self.log_message("Realized Net PnL and trade metrics reset to $0.00")
+
     def to_dict(self) -> Dict[str, Any]:
         self.update_uptime()
         return self.telemetry.model_dump()

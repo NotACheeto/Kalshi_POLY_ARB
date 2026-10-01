@@ -281,7 +281,10 @@ def create_dashboard_app(
             <div id="total-scans-sub" class="metric-sub">0 total scans completed</div>
         </div>
         <div class="metric-card">
-            <div class="metric-label">Realized Net PnL</div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div class="metric-label">Realized Net PnL</div>
+                <button onclick="resetPnL()" style="background:#1e293b; color:#94a3b8; border:1px solid #334155; border-radius:4px; font-size:0.65rem; padding:2px 6px; cursor:pointer;" title="Reset Realized PnL to $0.00">Reset</button>
+            </div>
             <div id="pnl-val" class="metric-value mono positive">$0.00</div>
             <div id="trades-sub" class="metric-sub">0 trades executed</div>
         </div>
@@ -421,6 +424,19 @@ def create_dashboard_app(
             }
         }
 
+        async function resetPnL() {
+            if (confirm("Reset Realized Net PnL and trade counters to $0.00?")) {
+                try {
+                    const res = await fetch('/api/reset-pnl', { method: 'POST' });
+                    if (res.ok) {
+                        fetchState();
+                    }
+                } catch (e) {
+                    console.error('Failed to reset PnL:', e);
+                }
+            }
+        }
+
         function connect() {
             try {
                 ws = new WebSocket(wsUrl);
@@ -545,6 +561,11 @@ def create_dashboard_app(
     @app.get("/api/state", dependencies=auth_deps)
     async def get_state():
         return state.to_dict()
+
+    @app.post("/api/reset-pnl", dependencies=auth_deps)
+    async def reset_pnl():
+        state.reset_pnl()
+        return {"status": "ok", "message": "Realized PnL reset to $0.00"}
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
