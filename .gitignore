@@ -8,6 +8,7 @@
 *.pkcs8
 credentials.*
 api_keys*
+!docs/API_KEYS.md
 secrets*
 *key.pem
 config/kalshi_key.pem

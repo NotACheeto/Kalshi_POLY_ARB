@@ -1,5 +1,8 @@
 """
-Trading Dashboard Package.
+Real-Time Web Dashboard.
+
+FastAPI + WebSocket dashboard with HTTP Basic Auth for monitoring
+arbitrage opportunities, positions, telemetry, and system health.
 """
 
 from src.dashboard.state import DashboardState, DashboardTelemetry

@@ -1,159 +1,220 @@
-# Polymarket ↔ Kalshi Cross-Exchange Arbitrage Engine
+# 📈 Kalshi ↔ Polymarket Cross-Exchange Arbitrage Engine
 
-Production-grade, low-latency, security-hardened quantitative arbitrage engine designed to trade between **Polymarket** and **Kalshi**, with a primary focus on ultra-short duration contracts (**<= 24 hours to resolution**).
+![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Tests](https://img.shields.io/badge/tests-28_passing-success.svg)
 
-Built on the foundational trading rule:
-> **NEVER knowingly place a trade unless the conservative estimated expected profit is strictly positive after exchange fees, spreads, slippage buffers, capital costs, and adverse execution allowances.**
+An institutional-grade, low-latency cross-exchange arbitrage execution engine trading binary outcome markets between Polymarket US (CFTC-regulated) and Kalshi.
 
----
+## 📌 Project Overview
 
-## Key System Architecture
-
-```
-Kalshi_POLY_ARB/
-├── config/
-│   ├── config.yaml               # Validated production configuration (Safe DRY_RUN default)
-│   └── .env.example              # Template for API credentials (zero secrets)
-├── src/
-│   ├── models.py                 # Normalized domain types (OrderBook, Market, Opportunity)
-│   ├── config.py                 # Pydantic configuration loader & validation
-│   ├── bot.py                    # Orchestrator: discovery, real-time scanning, execution
-│   ├── math/
-│   │   ├── fee_calculator.py     # Kalshi CFTC quadratic taker formula & Polymarket fee model
-│   │   └── ev_calculator.py      # Hard Positive-EV gate, sizing, and friction modeling
-│   ├── matcher/
-│   │   └── market_matcher.py     # Deterministic market matcher (strike, date, outcome)
-│   ├── clients/
-│   │   ├── kalshi_client.py      # Kalshi v2 client: RSA-SHA256 (PSS), connection pool, orderbook_fp
-│   │   └── polymarket_client.py  # Polymarket Gamma & CLOB client: EIP-712 orders, connection pool
-│   └── execution/
-│       ├── risk_manager.py       # Concurrency pair locking, exposure limits, kill switch
-│       ├── reconciler.py         # Append-only Write-Ahead Log (WAL) & startup crash recovery
-│       └── leg_risk_fsm.py       # 7-state atomic two-leg FSM with partial fill hedging
-├── tests/                        # 18 unit, integration, simulation, and security tests
-├── main.py                       # CLI entry point (--dry-run, --live, --scan-once)
-└── requirements.txt              # Lean async stack (no bloated web dashboards)
-```
+- **Primary Market**: 15-minute Bitcoin Up/Down recurring markets
+  - Kalshi: `KXBTC15M`
+  - Polymarket US: `cpc-btc-updown-15m-*`
+- **Core Mechanism**: Buy **YES** on one exchange and simultaneously Buy **NO** on the other. Because these are binary mutually exclusive contracts, exactly one will settle at $1.00 and the other at $0.00. If the combined gross cost of the positions is strictly less than $1.00, the difference is a guaranteed, risk-free profit.
+- **Latency Optimization**: Designed to be deployed on AWS EC2 `us-east-1` (North Virginia) to achieve sub-2ms network latency to both exchange APIs.
 
 ---
 
-## Mathematical Formulation
+## 🚀 Quick Start
 
-### Synthetic Complementary Arbitrage
+### 1. Prerequisites
+- Python 3.11+
+- API keys for Polymarket US and Kalshi
+- Generated RSA private key for Kalshi API v2 authentication
 
-Because Polymarket (Polygon ERC-1155) and Kalshi (CFTC-cleared USD ledger) do not share a clearinghouse, tokens cannot cross exchanges to deliver against short positions. The engine instead constructs **synthetic complementary bundles** held to settlement:
-
-$$\text{Strategy 1: Buy YES on Polymarket} + \text{Buy NO on Kalshi}$$
-$$\text{Strategy 2: Buy NO on Polymarket} + \text{Buy YES on Kalshi}$$
-
-In both outcomes ($\text{YES}$ or $\text{NO}$), exactly one contract pays $\$1.00$ while the other pays $\$0.00$. The guaranteed gross payout is **strictly $\$1.00$ per contract unit**.
-
-### Conservative Net Expected Value (EV)
-
-$$\text{Gross Cost per Unit } C_{\text{gross}} = P_1^{\text{ask}} + P_2^{\text{ask}}$$
-$$\text{Gross Profit} = Q \times (\$1.00 - C_{\text{gross}})$$
-$$\text{Total Friction} = \text{Fee}_{\text{poly}} + \text{Fee}_{\text{kalshi}} + \text{Cost}_{\text{slippage}} + \text{Cost}_{\text{adverse}} + \text{Cost}_{\text{capital}}$$
-$$\text{Conservative Net EV} = \text{Gross Profit} - \text{Total Friction}$$
-
-### Hard Safety Gate
-
-A trade is executed if and only if all conditions are met:
-1. $\text{Conservative Net EV} \ge \text{MinRequiredProfit}$ ($\ge \$0.25$ default)
-2. $\frac{\text{Conservative Net EV}}{Q \times C_{\text{gross}}} \ge \text{MinNetEdgePct}$ ($\ge 1.50\%$ default)
-3. $\text{Quote Age} \le 2.0\text{ seconds}$ (rejection of stale data)
-4. $5\text{ minutes} \le T_{\text{resolution}} \le 24\text{ hours}$ (short-duration window)
-
----
-
-## Two-Leg Execution State Machine
-
-```
-DETECTED
-   ↓ (Acquire Pair Lock)
-VALIDATING
-   ↓ (Pre-Flight Recheck)
-LEG1_SUBMITTED ──────────────→ ABORTED (Zero Fill / Timeout -> 0 Exposure)
-   ↓ (Fill Confirmation)
-LEG1_PARTIAL / LEG1_FILLED (Cancel Unfilled Remainder)
-   ↓ (Submit Exact Filled Quantity)
-LEG2_SUBMITTED
-   ↓ (Fill Confirmation)
-COMPLETED (Hedge Locked) OR HEDGING (Auto-Unwind if Unhedged)
-```
-
-- **Zero Exposure on Leg 1 Timeout**: If Leg 1 does not fill within timeout, it is cancelled immediately. Exposure = 0.
-- **Partial Fill Coordination**: If Leg 1 fills 8 out of 20 contracts, the remaining 12 are immediately cancelled. Leg 2 is submitted for **precisely 8 contracts**.
-- **Automated Emergency Unwind**: If Leg 2 fails to fill within timeout, Leg 1 is unwound on the market within a strict loss tolerance to eliminate unhedged overnight risk.
-
----
-
-## Installation & Setup
-
-### 1. Install Dependencies
-
-```powershell
+### 2. Installation
+```bash
+git clone <repository_url>
+cd Kalshi_ARB
+python -m venv venv
+source venv/bin/activate  # Or `venv\Scripts\activate` on Windows
 pip install -r requirements.txt
 ```
 
-### 2. Configure Credentials
-
-Copy the template:
-```powershell
-cp config/.env.example .env
-```
-
-Populate your `.env` (automatically ignored by Git):
+### 3. Configuration
+Copy the environment template and populate your keys:
 ```bash
-# Polymarket
-POLYMARKET_API_KEY="your_api_key"
-POLYMARKET_SECRET="your_secret"
-POLYMARKET_PASSPHRASE="your_passphrase"
-POLYMARKET_PRIVATE_KEY="your_polygon_wallet_private_key"
+cp .env.example .env
+```
+Update your secrets in `.env` and adjust risk limits/fees in `config/config.yaml`.
 
-# Kalshi
-KALSHI_API_KEY_ID="your_kalshi_key_id"
-KALSHI_PRIVATE_KEY_PATH="config/kalshi_key.pem"
+### 4. Running the Engine
+By default, the engine runs safely in paper trading mode.
+```bash
+# Paper trading (safe)
+python main.py
 ```
 
 ---
 
-## Running the Engine
+## 💻 CLI Usage
 
-### Paper Trading / Dry Run Mode (Default)
-
-Runs against live real-time market data without placing real capital at risk:
-
-```powershell
-# Continuous live market scanning:
+```bash
+# Paper trading (default - safe):
 python main.py
 
-# Single-cycle market scan and report:
+# Paper trading with real-time dashboard:
+python main.py --dashboard --dashboard-port 8000
+
+# Single scan cycle (useful for cron or testing):
 python main.py --scan-once
+
+# LIVE trading (requires explicit confirmation):
+python main.py --live --confirm-live-risk --dashboard
 ```
-
-### Live Trading Mode
-
-Requires explicit two-key authorization:
-
-1. Enable live mode in `config/config.yaml`:
-   ```yaml
-   execution:
-     dry_run: false
-     live_trading_confirmed: true
-   ```
-2. Run with the mandatory confirmation flag:
-   ```powershell
-   python main.py --live --confirm-live-risk
-   ```
 
 ---
 
-## Running Tests
+## 📐 Architecture
 
-Execute the comprehensive test suite:
-
-```powershell
-python -m pytest tests/ -v
+```text
+Kalshi_POLY_ARB/
+├── config/
+│   ├── config.yaml            # All tunable parameters (fees, risk limits, thresholds)
+│   └── kalshi_key.pem         # RSA private key for Kalshi auth (gitignored)
+├── deploy/
+│   ├── setup_ec2.sh           # One-command EC2 provisioning script
+│   ├── kalshi-arb.service     # systemd unit file for auto-restart
+│   └── start_tunnel.bat       # Windows SSH tunnel helper for dashboard access
+├── src/
+│   ├── models.py              # All domain types: Platform, OrderBook, Market, Opportunity
+│   ├── config.py              # Pydantic config loader from YAML + .env
+│   ├── bot.py                 # Main orchestrator: discovery → matching → evaluation → execution loop
+│   ├── clients/
+│   │   ├── kalshi_client.py   # Kalshi v2 REST: RSA-SHA256-PSS auth, orderbook, order placement
+│   │   └── polymarket_client.py # Polymarket Gamma + CLOB: market discovery, orderbook, orders
+│   ├── math/
+│   │   ├── ev_calculator.py   # Conservative net EV computation with friction modeling
+│   │   └── fee_calculator.py  # Kalshi quadratic taker fees, Polymarket fee model
+│   ├── matcher/
+│   │   └── market_matcher.py  # Cross-exchange market pairing (strike, date, outcome alignment)
+│   ├── execution/
+│   │   ├── risk_manager.py    # Pair locking, exposure limits, daily loss tracking, kill switch
+│   │   ├── leg_risk_fsm.py    # 7-state two-leg execution FSM with partial fill hedging
+│   │   └── reconciler.py      # Append-only WAL journal for crash recovery
+│   └── dashboard/
+│       ├── server.py          # FastAPI + WebSocket real-time dashboard
+│       └── state.py           # Thread-safe dashboard state management
+├── tests/                     # 28 unit/integration tests
+├── main.py                    # CLI entry point
+├── requirements.txt           # Python dependencies
+└── .env.example               # Credential template (zero secrets)
 ```
 
-18/18 tests pass across EV math, fee calculations, deterministic matching, concurrency locks, state machine transitions, crash recovery journaling, and credential sanitization.
+---
+
+## 🧮 Mathematical Expected Value (EV) Formulation
+
+To ensure trade profitability given exchange friction, the engine calculates a conservative Net Expected Value (EV) before triggering execution.
+
+$$
+\text{Gross Cost} = P_{1, \text{ask}} + P_{2, \text{ask}}
+$$
+$$
+\text{Gross EV} = \$1.00 - \text{Gross Cost}
+$$
+
+The Net EV incorporates exchange fees, estimated slippage, an adverse market buffer, and cost of capital:
+
+$$
+\text{Net EV} = Q \times (\text{Gross EV}) - F_{\text{Kalshi}} - F_{\text{Poly}} - S - B_{\text{adverse}} - C_{\text{capital}}
+$$
+
+**Execution Threshold:**
+The FSM is activated *only* if:
+1. $\text{Net EV} > \$0.15$
+2. $\text{Net Edge} = \left( \frac{\text{Net EV}}{Q \times \text{Gross Cost}} \right) > 1.5\%$
+
+---
+
+## ⚙️ Execution State Machine (FSM)
+
+The engine coordinates concurrent, cross-exchange partial fills using a deterministic Finite State Machine to mitigate leg-risk.
+
+```mermaid
+stateDiagram-v2
+    [*] --> DETECTED
+    DETECTED --> VALIDATING : Gross EV > Threshold
+    VALIDATING --> ABORTED : Stale Quote / Risk Limit
+    VALIDATING --> LEG1_SUBMITTED : EV Verified & Lock Acquired
+    LEG1_SUBMITTED --> LEG1_FILLED : Order 1 Executed
+    LEG1_SUBMITTED --> ABORTED : Order 1 Failed/Timeout
+    LEG1_FILLED --> LEG2_SUBMITTED : Sending Hedge
+    LEG2_SUBMITTED --> COMPLETED : Order 2 Executed (Arb Secured)
+    LEG2_SUBMITTED --> HEDGING : Order 2 Failed (Re-attempting leg)
+    HEDGING --> COMPLETED : Late Fill
+    HEDGING --> ABORTED : Max Retries Exceeded (Unhedged Exposure)
+    COMPLETED --> [*]
+    ABORTED --> [*]
+```
+
+---
+
+## 🛡️ Risk Controls
+
+Capital preservation is guaranteed via several layers of strictly enforced constraints:
+- **Capital Constraints**: Maximum $10.00 allocated per trade, maximum 10 contracts per execution.
+- **Daily Loss Limits**: A $5.00 daily loss limit automatically triggers the global kill switch.
+- **Circuit Breakers**: 3 consecutive execution failures trigger the global kill switch.
+- **Staleness Rejection**: Quotes older than 2.0 seconds are discarded immediately.
+- **Order Types**: Exclusively utilizes Immediate-Or-Cancel (IOC) limit orders. Market orders are never used.
+
+---
+
+## 🔧 Configuration
+
+All tuning is managed in `config/config.yaml`.
+- **Trading Limits**: `max_contracts`, `max_trade_capital`
+- **Fees**: Kalshi quadratic taker fee mapping, Polymarket fee rates
+- **Thresholds**: `min_net_ev`, `min_edge_pct`, `quote_timeout_ms`
+
+---
+
+## 📊 Real-Time Dashboard
+
+Includes an embedded FastAPI dashboard for monitoring execution.
+- **Real-time Live Updates**: WebSocket integration streams live orderbook disparities and FSM state changes.
+- **Resiliency**: Automatically falls back to 1-second HTTP polling if WebSockets fail.
+- **Security**: Protected via HTTP Basic Auth.
+
+---
+
+## ☁️ Deployment
+
+For maximum profitability, the engine must be deployed in **AWS `us-east-1` (North Virginia)** to maintain sub-2ms network latency to both Kalshi and Polymarket US APIs.
+
+Use the provided deploy scripts:
+```bash
+# SSH into EC2 instance
+./deploy/setup_ec2.sh
+# Start the systemd service
+sudo systemctl enable kalshi-arb
+sudo systemctl start kalshi-arb
+```
+Windows users can utilize `deploy/start_tunnel.bat` to securely proxy the remote web dashboard to `localhost`.
+
+---
+
+## 🔐 Security
+
+- **Kalshi Authentication**: Utilizes RSA-SHA256-PSS signed timestamps via API v2.
+- **Polymarket US Authentication**: Uses Ed25519 signed requests (`X-PM-Access-Key`, `X-PM-Timestamp`, `X-PM-Signature`). No wallet passphrase or private keys are kept in memory beyond signing context.
+- **Credential Safety**: The `.env` file and `config/kalshi_key.pem` are strictly git-ignored. `.env.example` provides zero-secret structural templating.
+
+---
+
+## 🧪 Testing
+
+The system is validated by **28 unit and integration tests** ensuring mathematical correctness and FSM reliability.
+
+```bash
+pytest tests/ -v
+```
+Test coverage spans:
+- Expected Value calculation correctness
+- Exact fee formulation (quadratic taker)
+- Cross-exchange market pair matching
+- FSM state transitions & hedging logic
+- Network latency simulation & penalty bounds
+- Dashboard authentication
