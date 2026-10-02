@@ -319,6 +319,7 @@ class ArbitrageBot:
                         self.dashboard_state.telemetry.total_trades_executed = self._total_trades_executed
                         self.dashboard_state.log_message(f"Trade executed: {opp.leg1.token_type.value}/{opp.leg2.token_type.value} (+${opp.net_profit:.2f})")
                 else:
+                    self.risk_manager.record_execution_failure(msg)
                     logger.warning(f"Execution Incomplete or Aborted: {msg}")
                     if self.dashboard_state:
                         self.dashboard_state.log_message(f"Execution aborted: {msg}")

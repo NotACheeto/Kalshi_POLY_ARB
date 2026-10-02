@@ -110,6 +110,18 @@ class RiskManager:
             self.consecutive_failures = 0
             logger.info(f"Profitable trade recorded: +${profit_dollars:.2f}")
 
+    def record_execution_failure(self, reason: str) -> None:
+        """Record an execution failure or abort to trip circuit breaker after consecutive failed attempts."""
+        self.consecutive_failures += 1
+        logger.warning(
+            f"Execution failure recorded: {reason} "
+            f"(Failures: {self.consecutive_failures}/{self.config.max_consecutive_failures})"
+        )
+        if self.consecutive_failures >= self.config.max_consecutive_failures:
+            self.trigger_kill_switch(
+                f"Consecutive execution failures ({self.consecutive_failures}) reached threshold: {reason}"
+            )
+
     def update_exposure(self, pair_id: str, notional_delta: float) -> None:
         """Update active position exposure."""
         self.current_global_exposure = max(0.0, self.current_global_exposure + notional_delta)

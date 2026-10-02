@@ -88,6 +88,33 @@ class LegRiskFSM:
                 self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": "Target quantity below 1 contract"})
                 return False, ExecutionState.ABORTED, "Target quantity below 1 contract"
 
+            # Pre-flight dual-exchange balance verification (NEVER submit Leg 1 if either account lacks capital)
+            if not self.config.dry_run:
+                try:
+                    poly_bal = await self.poly_client.get_balance()
+                    kalshi_bal = await self.kalshi_client.get_balance()
+
+                    needed_poly = (opp.leg1.executable_price * target_qty) if opp.leg1.platform == Platform.POLYMARKET else (opp.leg2.executable_price * target_qty)
+                    needed_kalshi = (opp.leg2.executable_price * target_qty) if opp.leg2.platform == Platform.KALSHI else (opp.leg1.executable_price * target_qty)
+
+                    if poly_bal < needed_poly:
+                        err_msg = f"Insufficient Polymarket balance: ${poly_bal:.2f} < ${needed_poly:.2f}"
+                        logger.warning(f"Execution aborted: {err_msg}")
+                        self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": err_msg})
+                        return False, ExecutionState.ABORTED, err_msg
+
+                    if kalshi_bal < needed_kalshi:
+                        err_msg = f"Insufficient Kalshi balance: ${kalshi_bal:.2f} < ${needed_kalshi:.2f}"
+                        logger.warning(f"Execution aborted: {err_msg}")
+                        self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": err_msg})
+                        return False, ExecutionState.ABORTED, err_msg
+
+                except Exception as e:
+                    err_msg = f"Pre-flight balance verification failed: {e}"
+                    logger.error(err_msg)
+                    self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": err_msg})
+                    return False, ExecutionState.ABORTED, err_msg
+
             # 4. Submit Leg 1
             self._transition(opp_id, pair_id, state, ExecutionState.LEG1_SUBMITTED, {"target_qty": target_qty})
             state = ExecutionState.LEG1_SUBMITTED
