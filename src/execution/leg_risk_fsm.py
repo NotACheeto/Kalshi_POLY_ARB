@@ -248,10 +248,15 @@ class LegRiskFSM:
     async def _wait_for_fill(self, order: LiveOrder, timeout: float) -> float:
         """
         Wait for an order to fill. In dry run mode, simulates immediate fill.
-        In live mode, polls status or monitors fill events up to timeout.
+        In live mode with IOC limit orders, treats confirmed exchange order IDs as filled.
         """
         if self.config.dry_run:
-            # Dry run: immediately confirmed filled
+            return order.size
+
+        # If order was successfully submitted with an exchange order ID, IOC immediately fills
+        if order.status in (OrderStatus.SUBMITTED, OrderStatus.FILLED) and order.exchange_order_id:
+            order.status = OrderStatus.FILLED
+            order.filled_size = order.size
             return order.size
 
         start_time = asyncio.get_event_loop().time()
@@ -269,7 +274,7 @@ class LegRiskFSM:
         if not order.exchange_order_id:
             return
         if order.platform == Platform.POLYMARKET:
-            await self.poly_client.cancel_order(order.exchange_order_id)
+            await self.poly_client.cancel_order(order.exchange_order_id, market_id=order.market_id)
         elif order.platform == Platform.KALSHI:
             await self.kalshi_client.cancel_order(order.exchange_order_id)
 

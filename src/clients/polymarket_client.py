@@ -482,6 +482,7 @@ class PolymarketClient:
                 "outcomeSide": outcome_side,
                 "action": action,
                 "type": "ORDER_TYPE_LIMIT",
+                "timeInForce": "TIME_IN_FORCE_IOC",
                 "price": {"value": f"{price:.2f}", "currency": "USD"},
                 "quantity": str(int(size) if size >= 1 else size),
             }
