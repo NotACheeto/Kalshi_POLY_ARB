@@ -115,96 +115,70 @@ class LegRiskFSM:
                     self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": err_msg})
                     return False, ExecutionState.ABORTED, err_msg
 
-            # 4. Submit Leg 1
+            # 4. Concurrent Dual Order Dispatch (Zero inter-leg delay)
             self._transition(opp_id, pair_id, state, ExecutionState.LEG1_SUBMITTED, {"target_qty": target_qty})
             state = ExecutionState.LEG1_SUBMITTED
 
-            leg1_order = await self._submit_leg_order(opp.leg1, target_qty, opp_id, "leg1")
-            
-            # Wait for Leg 1 fill
-            leg1_filled_qty = await self._wait_for_fill(
-                leg1_order,
-                timeout=self.config.leg1_fill_timeout_seconds,
-            )
+            # Calculate safe limit price ceiling for each leg to guarantee combined profit
+            max_leg2_price = round(1.00 - opp.leg1.executable_price - 0.01, 2)
 
-            # Leg 1 fill analysis
-            if leg1_filled_qty <= 0:
-                # Zero fill: Cancel order, clean abort, 0 naked risk
-                await self._cancel_leg_order(leg1_order)
-                self.risk_manager.record_execution_failure("Leg 1 zero fill / timeout")
-                self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": "Leg 1 zero fill / timeout"})
-                return False, ExecutionState.ABORTED, "Leg 1 failed to fill, aborted safely with 0 exposure"
+            leg1_coro = self._submit_leg_order(opp.leg1, target_qty, opp_id, "leg1")
+            leg2_coro = self._submit_leg_order(opp.leg2, target_qty, opp_id, "leg2", max_allowed_price=max_leg2_price)
 
-            # Check for partial fill
-            if leg1_filled_qty < target_qty:
-                # Cancel remaining unfilled portion of Leg 1 immediately
-                await self._cancel_leg_order(leg1_order)
-                self._transition(
-                    opp_id, pair_id, state, ExecutionState.LEG1_PARTIAL,
-                    {"filled": leg1_filled_qty, "requested": target_qty}
-                )
-                state = ExecutionState.LEG1_PARTIAL
+            orders = await asyncio.gather(leg1_coro, leg2_coro, return_exceptions=True)
+            leg1_order = orders[0]
+            leg2_order = orders[1]
+
+            # Collect fill statuses concurrently
+            fill_tasks = []
+            if not isinstance(leg1_order, Exception):
+                fill_tasks.append(self._wait_for_fill(leg1_order, timeout=self.config.leg1_fill_timeout_seconds))
             else:
-                self._transition(
-                    opp_id, pair_id, state, ExecutionState.LEG1_FILLED,
-                    {"filled": leg1_filled_qty}
-                )
-                state = ExecutionState.LEG1_FILLED
+                fill_tasks.append(asyncio.sleep(0, result=0.0))
 
-            # 5. Submit Leg 2 for EXACT filled quantity of Leg 1
-            hedge_qty = leg1_filled_qty
-            self._transition(opp_id, pair_id, state, ExecutionState.LEG2_SUBMITTED, {"hedge_qty": hedge_qty})
-            state = ExecutionState.LEG2_SUBMITTED
+            if not isinstance(leg2_order, Exception):
+                fill_tasks.append(self._wait_for_fill(leg2_order, timeout=self.config.leg2_fill_timeout_seconds))
+            else:
+                fill_tasks.append(asyncio.sleep(0, result=0.0))
 
-            # Calculate maximum price for Leg 2 that guarantees positive net profit
-            max_leg2_price = round(1.00 - leg1_order.average_fill_price - 0.01, 2)
+            fill_results = await asyncio.gather(*fill_tasks, return_exceptions=True)
+            leg1_filled_qty = fill_results[0] if isinstance(fill_results[0], (int, float)) else 0.0
+            leg2_filled_qty = fill_results[1] if isinstance(fill_results[1], (int, float)) else 0.0
 
-            try:
-                leg2_order = await self._submit_leg_order(
-                    opp.leg2, hedge_qty, opp_id, "leg2", max_allowed_price=max_leg2_price
-                )
-                # Wait for Leg 2 fill
-                leg2_filled_qty = await self._wait_for_fill(
-                    leg2_order,
-                    timeout=self.config.leg2_fill_timeout_seconds,
-                )
-            except Exception as e:
-                logger.critical(f"Leg 2 order execution error: {e}")
-                leg2_filled_qty = 0.0
-                leg2_order = LiveOrder(
-                    client_order_id=f"{opp_id}_leg2_err",
-                    platform=opp.leg2.platform,
-                    market_id=opp.leg2.market_id,
-                    token_type=opp.leg2.token_type,
-                    side=opp.leg2.side,
-                    price=opp.leg2.executable_price,
-                    size=hedge_qty,
-                    status=OrderStatus.REJECTED,
-                )
-
-            # 6. Evaluate Leg 2 fill
-            if leg2_filled_qty == hedge_qty:
-                # Perfect hedge completed!
+            # Case A: Both legs filled 100% (Instant arbitrage hedge complete)
+            if leg1_filled_qty > 0 and leg2_filled_qty > 0 and leg1_filled_qty == leg2_filled_qty:
+                completed_qty = leg1_filled_qty
+                p1 = getattr(leg1_order, "average_fill_price", opp.leg1.executable_price)
+                p2 = getattr(leg2_order, "average_fill_price", opp.leg2.executable_price)
+                actual_net_profit = (1.00 - (p1 + p2)) * completed_qty
                 self._transition(opp_id, pair_id, state, ExecutionState.COMPLETED, {
-                    "hedge_qty": hedge_qty,
-                    "leg1_fill_price": leg1_order.average_fill_price,
-                    "leg2_fill_price": leg2_order.average_fill_price,
-                    "net_profit": opp.net_profit * (hedge_qty / target_qty),
+                    "hedge_qty": completed_qty,
+                    "leg1_fill_price": p1,
+                    "leg2_fill_price": p2,
+                    "net_profit": actual_net_profit,
                 })
-                # Record trade result in Risk Manager
-                pnl = opp.net_profit * (hedge_qty / target_qty)
-                self.risk_manager.record_trade_result(pnl, opp.gross_cost_per_unit * hedge_qty, pair_id)
-                return True, ExecutionState.COMPLETED, f"Arbitrage successfully completed for {hedge_qty} units"
+                self.risk_manager.record_trade_result(actual_net_profit, (p1 + p2) * completed_qty, pair_id)
+                return True, ExecutionState.COMPLETED, f"Arbitrage successfully completed for {completed_qty} units (Profit: +${actual_net_profit:.2f})"
 
-            # 7. Unhedged Leg 2 execution -> enter HEDGING
+            # Case B: Both legs failed to fill (0 units executed, 0 risk, clean abort)
+            if leg1_filled_qty <= 0 and leg2_filled_qty <= 0:
+                if not isinstance(leg1_order, Exception):
+                    await self._cancel_leg_order(leg1_order)
+                if not isinstance(leg2_order, Exception):
+                    await self._cancel_leg_order(leg2_order)
+                self.risk_manager.record_execution_failure("Concurrent IOC: Neither leg crossed book (clean abort)")
+                self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": "Both legs zero fill / expired"})
+                return False, ExecutionState.ABORTED, "Neither leg filled (clean abort with 0 exposure)"
+
+            # Case C: Asymmetric Fill (One leg filled, other leg missed or partial)
+            # Enter HEDGING state to unwind the unhedged delta immediately
             self._transition(opp_id, pair_id, state, ExecutionState.HEDGING, {
                 "leg1_filled": leg1_filled_qty,
                 "leg2_filled": leg2_filled_qty,
-                "unhedged_delta": leg1_filled_qty - leg2_filled_qty,
+                "unhedged_delta": abs(leg1_filled_qty - leg2_filled_qty),
             })
             state = ExecutionState.HEDGING
 
-            # Protective unwind / hedging logic
             unwind_ok = await self._handle_unhedged_exposure(
                 opp, leg1_order, leg2_order, leg1_filled_qty, leg2_filled_qty
             )
@@ -213,11 +187,15 @@ class LegRiskFSM:
 
             if not self.config.dry_run:
                 self.risk_manager.trigger_kill_switch(
-                    f"UNHEDGED LEG FAILURE: Leg 1 filled on Kalshi ({leg1_filled_qty}), "
-                    f"but Leg 2 on Polymarket did not fill ({leg2_filled_qty}/{hedge_qty}). Trading halted."
+                    f"UNHEDGED FILL MISMATCH: Leg 1 filled {leg1_filled_qty}, "
+                    f"Leg 2 filled {leg2_filled_qty}. Engine halted."
                 )
 
-            return unwind_ok, final_state, f"Unhedged leg handled (Result: {final_state.value})"
+            common_filled = min(leg1_filled_qty, leg2_filled_qty)
+            if common_filled > 0:
+                return unwind_ok, final_state, f"Arbitrage successfully completed for {common_filled} units (Unhedged leg handled: {final_state.value})"
+            else:
+                return unwind_ok, final_state, f"Unhedged leg handled (Result: {final_state.value})"
 
         finally:
             # Always release pair lock
@@ -393,10 +371,18 @@ class LegRiskFSM:
         Emergency hedge handler when Leg 2 only partially fills or fails.
         Unwinds the excess Leg 1 contracts on the open market within loss tolerance.
         """
-        unhedged_qty = leg1_filled - leg2_filled
+        if leg1_filled > leg2_filled:
+            unhedged_qty = leg1_filled - leg2_filled
+            unwind_leg = opp.leg1
+            avg_px = getattr(leg1_order, "average_fill_price", opp.leg1.executable_price)
+        else:
+            unhedged_qty = leg2_filled - leg1_filled
+            unwind_leg = opp.leg2
+            avg_px = getattr(leg2_order, "average_fill_price", opp.leg2.executable_price)
+
         logger.critical(
             f"EMERGENCY HEDGE TRIGGERED: Leg 1 filled {leg1_filled}, Leg 2 filled {leg2_filled}. "
-            f"Unhedged quantity: {unhedged_qty}"
+            f"Unhedged quantity: {unhedged_qty} on {unwind_leg.platform.value}"
         )
 
         if self.config.dry_run:
@@ -404,19 +390,19 @@ class LegRiskFSM:
             return True
 
         if self.config.auto_unwind_unhedged_leg:
-            # Submit market sell order to close Leg 1 position
+            # Submit market sell order to close excess position
             try:
                 from src.models import ArbitrageLegSpec
-                unwind_price = max(0.01, leg1_order.average_fill_price * (1.0 - self.config.max_unwind_loss_pct))
+                unwind_price = max(0.01, avg_px * (1.0 - self.config.max_unwind_loss_pct))
                 unwind_spec = ArbitrageLegSpec(
-                    platform=opp.leg1.platform,
-                    market_id=opp.leg1.market_id,
-                    token_type=opp.leg1.token_type,
+                    platform=unwind_leg.platform,
+                    market_id=unwind_leg.market_id,
+                    token_type=unwind_leg.token_type,
                     side=OrderSide.SELL,
                     executable_price=unwind_price,
                     available_size=unhedged_qty,
                     expected_fee=0.0,
-                    token_id=opp.leg1.token_id,
+                    token_id=unwind_leg.token_id,
                 )
                 unwind_order = await self._submit_leg_order(
                     unwind_spec,

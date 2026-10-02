@@ -45,8 +45,8 @@ class APIConfig(BaseModel):
 
 class ArbitrageGateConfig(BaseModel):
     # Profitability and EV Thresholds
-    min_net_edge_pct: float = Field(default=0.015, ge=0.001, description="Minimum 1.5% net profit after all friction")
-    min_net_profit_dollars: float = Field(default=0.25, ge=0.01, description="Minimum dollar profit per bundle trade")
+    min_net_edge_pct: float = Field(default=0.035, ge=0.001, description="Minimum 3.5% net profit after all friction")
+    min_net_profit_dollars: float = Field(default=0.03, ge=0.01, description="Minimum dollar profit per bundle trade")
     
     # Duration filtering: Ultra-short duration (< 24 hours)
     max_hours_to_resolution: float = Field(default=24.0, ge=0.1, le=168.0, description="Only trade markets resolving in <= 24h")
