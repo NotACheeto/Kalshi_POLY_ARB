@@ -339,51 +339,93 @@ class PolymarketClient:
                 path = f"/v1/markets/{market.market_id}/book"
                 headers = self._get_us_auth_headers("GET", path)
                 resp = await self._us_client.get(path, headers=headers)
-                resp.raise_for_status()
-                data = resp.json().get("marketData", {})
-                self.last_latency_ms = (time.perf_counter() - t0) * 1000.0
+                if resp.status_code == 200:
+                    data = resp.json().get("marketData", {})
+                    self.last_latency_ms = (time.perf_counter() - t0) * 1000.0
 
-                yes_bids: List[PriceLevel] = []
-                yes_asks: List[PriceLevel] = []
+                    yes_bids: List[PriceLevel] = []
+                    yes_asks: List[PriceLevel] = []
 
-                for b in data.get("bids", []):
-                    px = float(b["px"]["value"])
-                    qty = float(b["qty"])
-                    yes_bids.append(PriceLevel(price=px, size=qty))
+                    for b in data.get("bids", []):
+                        px = float(b["px"]["value"])
+                        qty = float(b["qty"])
+                        yes_bids.append(PriceLevel(price=px, size=qty))
 
-                for a in data.get("offers", []):
-                    px = float(a["px"]["value"])
-                    qty = float(a["qty"])
-                    yes_asks.append(PriceLevel(price=px, size=qty))
+                    for a in data.get("offers", []):
+                        px = float(a["px"]["value"])
+                        qty = float(a["qty"])
+                        yes_asks.append(PriceLevel(price=px, size=qty))
 
-                # Sort YES bids descending and asks ascending
-                yes_bids.sort(key=lambda x: x.price, reverse=True)
-                yes_asks.sort(key=lambda x: x.price)
+                    # Sort YES bids descending and asks ascending
+                    yes_bids.sort(key=lambda x: x.price, reverse=True)
+                    yes_asks.sort(key=lambda x: x.price)
 
-                # Derive NO bids and asks synthetically (NO price = 1.0 - YES price)
-                no_bids: List[PriceLevel] = []
-                for ya in yes_asks:
-                    no_price = round(1.0 - ya.price, 4)
-                    no_bids.append(PriceLevel(price=no_price, size=ya.size))
-                no_bids.sort(key=lambda x: x.price, reverse=True)
+                    # Derive NO bids and asks synthetically (NO price = 1.0 - YES price)
+                    no_bids: List[PriceLevel] = []
+                    for ya in yes_asks:
+                        no_price = round(1.0 - ya.price, 4)
+                        no_bids.append(PriceLevel(price=no_price, size=ya.size))
+                    no_bids.sort(key=lambda x: x.price, reverse=True)
 
-                no_asks: List[PriceLevel] = []
-                for yb in yes_bids:
-                    no_price = round(1.0 - yb.price, 4)
-                    no_asks.append(PriceLevel(price=no_price, size=yb.size))
-                no_asks.sort(key=lambda x: x.price)
+                    no_asks: List[PriceLevel] = []
+                    for yb in yes_bids:
+                        no_price = round(1.0 - yb.price, 4)
+                        no_asks.append(PriceLevel(price=no_price, size=yb.size))
+                    no_asks.sort(key=lambda x: x.price)
 
-                return NormalizedOrderBook(
-                    platform=Platform.POLYMARKET,
-                    market_id=market.market_id,
-                    timestamp=datetime.now(timezone.utc),
-                    yes_bids=yes_bids,
-                    yes_asks=yes_asks,
-                    no_bids=no_bids,
-                    no_asks=no_asks,
-                )
+                    return NormalizedOrderBook(
+                        platform=Platform.POLYMARKET,
+                        market_id=market.market_id,
+                        timestamp=datetime.now(timezone.utc),
+                        yes_bids=yes_bids,
+                        yes_asks=yes_asks,
+                        no_bids=no_bids,
+                        no_asks=no_asks,
+                    )
             except Exception as e:
-                logger.warning(f"Failed to fetch Polymarket US orderbook for {market.market_id}: {e}")
+                logger.debug(f"Direct /book endpoint not available for {market.market_id}: {e}")
+
+            # Fallback for quote-based US markets where /book returns 404
+            try:
+                t0 = time.perf_counter()
+                path = "/v1/markets"
+                headers = self._get_us_auth_headers("GET", path)
+                resp = await self._us_client.get(
+                    path, headers=headers, params={"categories": "crypto", "closed": "false", "limit": 150}
+                )
+                if resp.status_code == 200:
+                    for m in resp.json().get("markets", []):
+                        if m.get("slug") == market.market_id:
+                            self.last_latency_ms = (time.perf_counter() - t0) * 1000.0
+                            yes_bid = None
+                            yes_ask = None
+                            if m.get("bestBidQuote"):
+                                yes_bid = float(m["bestBidQuote"]["value"])
+                            if m.get("bestAskQuote"):
+                                yes_ask = float(m["bestAskQuote"]["value"])
+
+                            no_bid = None
+                            no_ask = None
+                            for s in m.get("marketSides", []):
+                                if s.get("description", "").lower() == "no" and s.get("quote"):
+                                    no_ask = float(s["quote"]["value"])
+                                elif s.get("description", "").lower() == "yes" and s.get("quote") and yes_ask is None:
+                                    yes_ask = float(s["quote"]["value"])
+
+                            if yes_bid is not None and yes_ask is not None:
+                                no_bid = round(1.0 - yes_ask, 4)
+                                no_ask = no_ask if no_ask is not None else round(1.0 - yes_bid, 4)
+                                return NormalizedOrderBook(
+                                    platform=Platform.POLYMARKET,
+                                    market_id=market.market_id,
+                                    timestamp=datetime.now(timezone.utc),
+                                    yes_bids=[PriceLevel(price=yes_bid, size=100.0)],
+                                    yes_asks=[PriceLevel(price=yes_ask, size=100.0)],
+                                    no_bids=[PriceLevel(price=no_bid, size=100.0)],
+                                    no_asks=[PriceLevel(price=no_ask, size=100.0)],
+                                )
+            except Exception as e:
+                logger.warning(f"Failed to fetch Polymarket US fallback orderbook for {market.market_id}: {e}")
                 return None
 
         # 2. Global Polymarket CLOB Orderbook
