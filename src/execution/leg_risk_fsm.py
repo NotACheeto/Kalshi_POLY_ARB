@@ -120,13 +120,24 @@ class LegRiskFSM:
                     self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": err_msg})
                     return False, ExecutionState.ABORTED, err_msg
 
+            # HARD POSITIVE-EV GUARANTEE: Combined price must strictly be <= 0.98 ($0.02 minimum margin)
+            if (opp.leg1.executable_price + opp.leg2.executable_price) >= 0.99:
+                err_msg = f"ABORT: Combined entry price ${opp.leg1.executable_price + opp.leg2.executable_price:.4f} >= $0.99"
+                logger.critical(err_msg)
+                self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": err_msg})
+                return False, ExecutionState.ABORTED, err_msg
+
             # 4. Dispatch both legs concurrently (simultaneously)
             self._transition(opp_id, pair_id, state, ExecutionState.LEG1_SUBMITTED, {"target_qty": target_qty})
             state = ExecutionState.LEG1_SUBMITTED
 
+            # Calculate strict price ceiling so that limit1 + limit2 <= 0.99 guaranteed
+            max_leg1_price = min(opp.leg1.executable_price, round(0.99 - opp.leg2.executable_price, 4))
+            max_leg2_price = min(opp.leg2.executable_price, round(0.99 - opp.leg1.executable_price, 4))
+
             # Dispatch orders to both Kalshi and Polymarket simultaneously
-            leg1_coro = self._submit_leg_order(opp.leg1, target_qty, opp_id, "leg1")
-            leg2_coro = self._submit_leg_order(opp.leg2, target_qty, opp_id, "leg2")
+            leg1_coro = self._submit_leg_order(opp.leg1, target_qty, opp_id, "leg1", max_allowed_price=max_leg1_price)
+            leg2_coro = self._submit_leg_order(opp.leg2, target_qty, opp_id, "leg2", max_allowed_price=max_leg2_price)
 
             orders = await asyncio.gather(leg1_coro, leg2_coro, return_exceptions=True)
             leg1_order = orders[0]
@@ -242,7 +253,13 @@ class LegRiskFSM:
             if p_ask is None or k_ask is None:
                 return False
 
-            # Gross cost check
+            # Hard gross cost check: must be strictly < $0.99
+            if (p_ask + k_ask) >= 0.99:
+                logger.warning(
+                    f"Execution aborted: Live combined price ${p_ask + k_ask:.4f} >= $0.99 (Negative/Zero EV)"
+                )
+                return False
+
             if (p_ask + k_ask) > (opp.gross_cost_per_unit + 0.005):
                 logger.warning(
                     f"Execution aborted: Price slipped from {opp.gross_cost_per_unit:.4f} "

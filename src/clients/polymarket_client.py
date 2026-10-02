@@ -404,17 +404,9 @@ class PolymarketClient:
                             if m.get("bestAskQuote"):
                                 yes_ask = float(m["bestAskQuote"]["value"])
 
-                            no_bid = None
-                            no_ask = None
-                            for s in m.get("marketSides", []):
-                                if s.get("description", "").lower() == "no" and s.get("quote"):
-                                    no_ask = float(s["quote"]["value"])
-                                elif s.get("description", "").lower() == "yes" and s.get("quote") and yes_ask is None:
-                                    yes_ask = float(s["quote"]["value"])
-
                             if yes_bid is not None and yes_ask is not None:
                                 no_bid = round(1.0 - yes_ask, 4)
-                                no_ask = no_ask if no_ask is not None else round(1.0 - yes_bid, 4)
+                                no_ask = round(1.0 - yes_bid, 4)
                                 return NormalizedOrderBook(
                                     platform=Platform.POLYMARKET,
                                     market_id=market.market_id,

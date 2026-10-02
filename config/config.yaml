@@ -15,8 +15,8 @@ api:
 
 arbitrage:
   # Hard Positive-EV Gate Thresholds
-  min_net_edge_pct: 0.035          # Require 3.5% net profit after ALL fees and slippage (wide safety margin)
-  min_net_profit_dollars: 0.03     # Minimum $0.03 net profit (scaled for micro 1-contract sizing)
+  min_net_edge_pct: 0.015          # Require 1.5% net profit after ALL fees and slippage
+  min_net_profit_dollars: 0.01     # Minimum $0.01 net profit (scaled for micro 1-contract sizing)
   
   # Duration Focus: Markets resolving in 24 hours or less
   max_hours_to_resolution: 24.0   # Max 24 hours to resolution (high turnover, low duration risk)
