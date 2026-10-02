@@ -9,6 +9,7 @@ import os
 import argparse
 import asyncio
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Add project root to sys.path
@@ -83,6 +84,12 @@ def parse_arguments() -> argparse.Namespace:
         default=8000,
         help="Port for the web dashboard (default: 8000)",
     )
+    parser.add_argument(
+        "--reset-journal",
+        action="store_true",
+        default=False,
+        help="Archive previous execution journal to start with a fresh clean state",
+    )
     return parser.parse_args()
 
 
@@ -114,6 +121,14 @@ async def main_async() -> None:
 
     setup_logging(config.execution.log_level)
     logger = logging.getLogger("Main")
+
+    if args.reset_journal:
+        journal_file = Path(config.execution.journal_path)
+        if journal_file.exists():
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            archive_file = journal_file.parent / f"execution_journal_archive_{ts}.jsonl"
+            journal_file.rename(archive_file)
+            logger.info(f"Archived previous execution journal to {archive_file}")
 
     dashboard_state = None
     dashboard_task = None
