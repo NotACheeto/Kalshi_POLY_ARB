@@ -90,6 +90,12 @@ def parse_arguments() -> argparse.Namespace:
         default=False,
         help="Archive previous execution journal to start with a fresh clean state",
     )
+    parser.add_argument(
+        "--max-trades",
+        type=int,
+        default=1,
+        help="Maximum number of arbitrage trades to execute before halting (default: 1)",
+    )
     return parser.parse_args()
 
 
@@ -118,6 +124,8 @@ async def main_async() -> None:
     else:
         config.execution.dry_run = True
         config.execution.live_trading_confirmed = False
+
+    config.execution.max_trades_per_session = args.max_trades
 
     setup_logging(config.execution.log_level)
     logger = logging.getLogger("Main")

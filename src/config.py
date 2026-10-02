@@ -93,6 +93,7 @@ class ExecutionConfig(BaseModel):
     # Logging & Journaling
     journal_path: str = "logs/execution_journal.jsonl"
     log_level: str = "INFO"
+    max_trades_per_session: Optional[int] = None
 
 
 class DashboardConfig(BaseModel):

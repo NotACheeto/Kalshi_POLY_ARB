@@ -156,6 +156,11 @@ class ArbitrageBot:
         last_refresh = asyncio.get_event_loop().time()
 
         while self._running:
+            if self.risk_manager.kill_switch_active:
+                logger.critical(f"HALTING ENGINE: Kill switch active ({self.risk_manager.kill_switch_reason})")
+                self._running = False
+                break
+
             try:
                 self._total_scans += 1
                 now = datetime.now(timezone.utc)
@@ -318,11 +323,19 @@ class ArbitrageBot:
                         self.dashboard_state.telemetry.daily_pnl_dollars = self._total_simulated_pnl
                         self.dashboard_state.telemetry.total_trades_executed = self._total_trades_executed
                         self.dashboard_state.log_message(f"Trade executed: {opp.leg1.token_type.value}/{opp.leg2.token_type.value} (+${opp.net_profit:.2f})")
+                    max_session_trades = getattr(self.config.execution, "max_trades_per_session", None)
+                    if max_session_trades and self._total_trades_executed >= max_session_trades:
+                        logger.info(f"Target session trade limit reached ({self._total_trades_executed}/{max_session_trades}). Halting engine gracefully.")
+                        self._running = False
                 else:
                     self.risk_manager.record_execution_failure(msg)
                     logger.warning(f"Execution Incomplete or Aborted: {msg}")
                     if self.dashboard_state:
                         self.dashboard_state.log_message(f"Execution aborted: {msg}")
+
+                if self.risk_manager.kill_switch_active:
+                    logger.critical(f"Kill switch active ({self.risk_manager.kill_switch_reason}). Stopping engine.")
+                    self._running = False
 
         except Exception as e:
             logger.debug(f"Error evaluating pair {pair.pair_id}: {e}")

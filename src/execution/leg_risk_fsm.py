@@ -205,6 +205,13 @@ class LegRiskFSM:
             )
             final_state = ExecutionState.COMPLETED if unwind_ok else ExecutionState.FAILED
             self._transition(opp_id, pair_id, state, final_state)
+
+            if not self.config.dry_run:
+                self.risk_manager.trigger_kill_switch(
+                    f"UNHEDGED LEG FAILURE: Leg 1 filled on Kalshi ({leg1_filled_qty}), "
+                    f"but Leg 2 on Polymarket did not fill ({leg2_filled_qty}/{hedge_qty}). Trading halted."
+                )
+
             return unwind_ok, final_state, f"Unhedged leg handled (Result: {final_state.value})"
 
         finally:
@@ -264,13 +271,18 @@ class LegRiskFSM:
     ) -> LiveOrder:
         """Dispatch order to the respective exchange client."""
         client_order_id = f"{opp_id}_{leg_name}_{uuid.uuid4().hex[:6]}"
+        price = leg_spec.executable_price
+        if leg_name == "leg2" and leg_spec.side == OrderSide.BUY:
+            # Taker buffer (+2 cents) so Leg 2 IOC hedge crosses the book and fills immediately
+            price = min(0.99, round(leg_spec.executable_price + 0.02, 2))
+
         if leg_spec.platform == Platform.POLYMARKET:
             return await self.poly_client.place_order(
                 market_id=leg_spec.market_id,
                 token_id=leg_spec.token_id or "",
                 token_type=leg_spec.token_type,
                 side=leg_spec.side,
-                price=leg_spec.executable_price,
+                price=price,
                 size=qty,
                 client_order_id=client_order_id,
             )
@@ -279,7 +291,7 @@ class LegRiskFSM:
                 market_id=leg_spec.market_id,
                 token_type=leg_spec.token_type,
                 side=leg_spec.side,
-                price=leg_spec.executable_price,
+                price=price,
                 size=qty,
                 client_order_id=client_order_id,
             )
