@@ -99,6 +99,9 @@ class ArbitrageBot:
         await self.kalshi_client.connect()
         await self.poly_client.connect()
         self._running = True
+        if self.dashboard_state:
+            mode_str = "LIVE (1 contract max)" if not self.config.dry_run else "DRY RUN"
+            self.dashboard_state.log_message(f"Engine online: Connected to Kalshi and Polymarket ({mode_str})")
 
         # 3. Initial Market Discovery & Pairing
         await self.refresh_market_pairs()
@@ -149,10 +152,16 @@ class ArbitrageBot:
         # Deterministic match
         self.matched_pairs = self.matcher.find_matches(poly_markets, kalshi_markets)
         logger.info(f"Verified {len(self.matched_pairs)} matched pairs for arbitrage monitoring.")
+        if self.dashboard_state:
+            self.dashboard_state.log_message(
+                f"Market discovery: {len(self.matched_pairs)} active 15M BTC pairs matched"
+            )
 
     async def _scan_loop(self) -> None:
         """Continuous high-speed scan loop over matched market pairs."""
         logger.info("Starting real-time orderbook evaluation loop...")
+        if self.dashboard_state:
+            self.dashboard_state.log_message("Real-time scan loop active: Monitoring concurrent orderbooks")
         last_refresh = asyncio.get_event_loop().time()
 
         while self._running:

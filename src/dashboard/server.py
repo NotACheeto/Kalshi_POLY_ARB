@@ -526,9 +526,11 @@ def create_dashboard_app(
             }
 
             // Console Stream
+            const consoleBox = document.getElementById('console-stream');
             if (d.recent_logs && d.recent_logs.length > 0) {
-                const consoleBox = document.getElementById('console-stream');
                 consoleBox.innerHTML = d.recent_logs.map(line => `<div class="console-line">${line}</div>`).join('');
+            } else if (d.status === 'RUNNING') {
+                consoleBox.innerHTML = '<div class="console-line" style="color:var(--accent-green);">[ACTIVE] Connected to engine telemetry — scanning orderbooks...</div>';
             }
 
             // Opportunity Table
