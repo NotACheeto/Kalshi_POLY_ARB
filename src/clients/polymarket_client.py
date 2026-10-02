@@ -572,3 +572,18 @@ class PolymarketClient:
         except Exception as e:
             logger.warning(f"Failed to fetch open orders: {e}")
             return []
+
+    async def get_order(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch details of a specific order on Polymarket US."""
+        if self.dry_run or not self.is_us_account or not self._us_client:
+            return None
+        try:
+            path = f"/v1/orders/{order_id}"
+            headers = self._get_us_auth_headers("GET", path)
+            resp = await self._us_client.get(path, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to fetch Polymarket order {order_id}: {e}")
+            return None

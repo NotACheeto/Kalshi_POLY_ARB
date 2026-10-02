@@ -297,7 +297,7 @@ class LegRiskFSM:
         if order.platform == Platform.KALSHI:
             return order.filled_size
 
-        # Polymarket US: poll open orders
+        # Polymarket US: poll open orders and verify fill status
         if order.platform == Platform.POLYMARKET and self.poly_client.is_us_account:
             start_time = asyncio.get_event_loop().time()
             while (asyncio.get_event_loop().time() - start_time) < timeout:
@@ -315,9 +315,24 @@ class LegRiskFSM:
                         order.status = OrderStatus.PARTIAL
                         order.filled_size = cum_qty
                 else:
-                    order.status = OrderStatus.FILLED
-                    order.filled_size = order.size
-                    return order.size
+                    # Not in open orders: check specific order status
+                    details = await self.poly_client.get_order(order.exchange_order_id)
+                    if details:
+                        status_str = details.get("status", "").upper()
+                        cum_qty = float(details.get("cumQuantity", 0.0))
+                        if "FILLED" in status_str or (cum_qty > 0 and float(details.get("leavesQuantity", 0.0)) == 0):
+                            order.status = OrderStatus.FILLED
+                            order.filled_size = cum_qty if cum_qty > 0 else order.size
+                            return order.filled_size
+                        elif "CANCEL" in status_str or "REJECT" in status_str:
+                            order.status = OrderStatus.CANCELLED
+                            order.filled_size = cum_qty
+                            return cum_qty
+                    else:
+                        # IOC order not resting in book
+                        order.status = OrderStatus.FILLED
+                        order.filled_size = order.size
+                        return order.size
                 await asyncio.sleep(0.1)
 
             if order.status != OrderStatus.FILLED:
