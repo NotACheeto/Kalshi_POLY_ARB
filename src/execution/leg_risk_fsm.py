@@ -128,13 +128,26 @@ class LegRiskFSM:
             self._transition(opp_id, pair_id, state, ExecutionState.LEG2_SUBMITTED, {"hedge_qty": hedge_qty})
             state = ExecutionState.LEG2_SUBMITTED
 
-            leg2_order = await self._submit_leg_order(opp.leg2, hedge_qty, opp_id, "leg2")
-
-            # Wait for Leg 2 fill
-            leg2_filled_qty = await self._wait_for_fill(
-                leg2_order,
-                timeout=self.config.leg2_fill_timeout_seconds,
-            )
+            try:
+                leg2_order = await self._submit_leg_order(opp.leg2, hedge_qty, opp_id, "leg2")
+                # Wait for Leg 2 fill
+                leg2_filled_qty = await self._wait_for_fill(
+                    leg2_order,
+                    timeout=self.config.leg2_fill_timeout_seconds,
+                )
+            except Exception as e:
+                logger.critical(f"Leg 2 order execution error: {e}")
+                leg2_filled_qty = 0.0
+                leg2_order = LiveOrder(
+                    client_order_id=f"{opp_id}_leg2_err",
+                    platform=opp.leg2.platform,
+                    market_id=opp.leg2.market_id,
+                    token_type=opp.leg2.token_type,
+                    side=opp.leg2.side,
+                    price=opp.leg2.executable_price,
+                    size=hedge_qty,
+                    status=OrderStatus.REJECTED,
+                )
 
             # 6. Evaluate Leg 2 fill
             if leg2_filled_qty == hedge_qty:
@@ -248,17 +261,42 @@ class LegRiskFSM:
     async def _wait_for_fill(self, order: LiveOrder, timeout: float) -> float:
         """
         Wait for an order to fill. In dry run mode, simulates immediate fill.
-        In live mode with IOC limit orders, treats confirmed exchange order IDs as filled.
         """
         if self.config.dry_run:
             return order.size
 
-        # If order was successfully submitted with an exchange order ID, IOC immediately fills
-        if order.status in (OrderStatus.SUBMITTED, OrderStatus.FILLED) and order.exchange_order_id:
-            order.status = OrderStatus.FILLED
-            order.filled_size = order.size
-            return order.size
+        # Kalshi V2 IOC orders immediately report fill_count in place_order
+        if order.platform == Platform.KALSHI:
+            return order.filled_size
 
+        # Polymarket US: poll open orders
+        if order.platform == Platform.POLYMARKET and self.poly_client.is_us_account:
+            start_time = asyncio.get_event_loop().time()
+            while (asyncio.get_event_loop().time() - start_time) < timeout:
+                open_orders = await self.poly_client.get_open_orders()
+                matching = [o for o in open_orders if o.get("id") == order.exchange_order_id]
+                if matching:
+                    o = matching[0]
+                    cum_qty = float(o.get("cumQuantity", 0.0))
+                    leaves_qty = float(o.get("leavesQuantity", 0.0))
+                    if cum_qty > 0 and leaves_qty == 0:
+                        order.status = OrderStatus.FILLED
+                        order.filled_size = cum_qty
+                        return cum_qty
+                    elif cum_qty > 0:
+                        order.status = OrderStatus.PARTIAL
+                        order.filled_size = cum_qty
+                else:
+                    order.status = OrderStatus.FILLED
+                    order.filled_size = order.size
+                    return order.size
+                await asyncio.sleep(0.1)
+
+            if order.status != OrderStatus.FILLED:
+                await self._cancel_leg_order(order)
+            return order.filled_size
+
+        # Global Polymarket CLOB
         start_time = asyncio.get_event_loop().time()
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             if order.status == OrderStatus.FILLED:
@@ -276,7 +314,7 @@ class LegRiskFSM:
         if order.platform == Platform.POLYMARKET:
             await self.poly_client.cancel_order(order.exchange_order_id, market_id=order.market_id)
         elif order.platform == Platform.KALSHI:
-            await self.kalshi_client.cancel_order(order.exchange_order_id)
+            await self.kalshi_client.cancel_order(order.exchange_order_id, market_id=order.market_id)
 
     async def _handle_unhedged_exposure(
         self,
@@ -303,10 +341,20 @@ class LegRiskFSM:
         if self.config.auto_unwind_unhedged_leg:
             # Submit market sell order to close Leg 1 position
             try:
-                unwind_side = OrderSide.SELL
+                from src.models import ArbitrageLegSpec
                 unwind_price = max(0.01, leg1_order.average_fill_price * (1.0 - self.config.max_unwind_loss_pct))
+                unwind_spec = ArbitrageLegSpec(
+                    platform=opp.leg1.platform,
+                    market_id=opp.leg1.market_id,
+                    token_type=opp.leg1.token_type,
+                    side=OrderSide.SELL,
+                    executable_price=unwind_price,
+                    available_size=unhedged_qty,
+                    expected_fee=0.0,
+                    token_id=opp.leg1.token_id,
+                )
                 unwind_order = await self._submit_leg_order(
-                    opp.leg1,
+                    unwind_spec,
                     unhedged_qty,
                     opp.opportunity_id,
                     "unwind",

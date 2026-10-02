@@ -555,3 +555,20 @@ class PolymarketClient:
         except Exception as e:
             logger.error(f"[LIVE POLYMARKET] Cancel failed for {exchange_order_id}: {e}")
             return False
+
+    async def get_open_orders(self) -> List[Dict[str, Any]]:
+        """Fetch all currently open orders on Polymarket US."""
+        if self.dry_run or not self.is_us_account or not self._us_client:
+            return []
+        try:
+            headers = self._get_us_auth_headers("GET", "/v1/orders/open")
+            resp = await self._us_client.get("/v1/orders/open", headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    return data
+                return data.get("orders", [])
+            return []
+        except Exception as e:
+            logger.warning(f"Failed to fetch open orders: {e}")
+            return []

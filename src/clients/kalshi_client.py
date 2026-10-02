@@ -329,37 +329,78 @@ class KalshiClient:
             return order
 
         # LIVE ORDER EXECUTION
+        # Determine book_side and dollar price for Kalshi v2
+        # On Kalshi:
+        # - Buy YES: side="bid", price=price
+        # - Buy NO: side="ask", price=1.0 - price (quotes YES price)
+        # - Sell YES: side="ask", price=price
+        # - Sell NO: side="bid", price=1.0 - price
+        if side == OrderSide.BUY:
+            if token_type == TokenType.YES:
+                book_side = "bid"
+                kalshi_price = round(price, 4)
+            else:  # NO
+                book_side = "ask"
+                kalshi_price = round(1.0 - price, 4)
+        else:  # SELL
+            if token_type == TokenType.YES:
+                book_side = "ask"
+                kalshi_price = round(price, 4)
+            else:  # NO
+                book_side = "bid"
+                kalshi_price = round(1.0 - price, 4)
+
+        # Enforce valid price bounds [0.0100, 0.9900]
+        kalshi_price = max(0.0100, min(0.9900, kalshi_price))
+
         payload = {
-            "action": "buy" if side == OrderSide.BUY else "sell",
-            "type": "limit",
             "ticker": market_id,
-            "side": "yes" if token_type == TokenType.YES else "no",
-            "count": int(size),
-            "yes_price": int(round(price * 100)),
+            "side": book_side,
+            "count": f"{size:.2f}",
+            "price": f"{kalshi_price:.4f}",
+            "time_in_force": "immediate_or_cancel",
+            "self_trade_prevention_type": "taker_at_cross",
             "client_order_id": client_order_id,
         }
 
         try:
-            resp = await self._request("POST", "/portfolio/orders", json_body=payload, authenticated=True)
-            order_data = resp.get("order", {})
-            order.exchange_order_id = order_data.get("order_id")
-            order.status = OrderStatus.SUBMITTED
+            resp = await self._request("POST", "/portfolio/events/orders", json_body=payload, authenticated=True)
+            order.exchange_order_id = resp.get("order_id")
             order.raw_response = resp
-            logger.info(f"[LIVE KALSHI] Order submitted: {order.exchange_order_id}")
+            
+            fill_count = float(resp.get("fill_count", "0.00"))
+            order.filled_size = fill_count
+            if fill_count > 0:
+                avg_px_fp = resp.get("average_fill_price")
+                if avg_px_fp:
+                    fill_p = float(avg_px_fp)
+                    order.average_fill_price = fill_p if (side == OrderSide.BUY and token_type == TokenType.YES) or (side == OrderSide.SELL and token_type == TokenType.YES) else round(1.0 - fill_p, 4)
+                else:
+                    order.average_fill_price = price
+                order.status = OrderStatus.FILLED if fill_count >= size else OrderStatus.PARTIAL
+                logger.info(
+                    f"[LIVE KALSHI] Order filled: {fill_count}/{size} contracts @ ${order.average_fill_price:.4f} "
+                    f"(Order ID: {order.exchange_order_id})"
+                )
+            else:
+                order.status = OrderStatus.CANCELLED
+                logger.info(f"[LIVE KALSHI] Order unfilled (IOC): Order ID {order.exchange_order_id}")
+
             return order
         except Exception as e:
             logger.error(f"[LIVE KALSHI] Order placement failed: {e}")
             order.status = OrderStatus.REJECTED
             raise
 
-    async def cancel_order(self, exchange_order_id: str) -> bool:
+    async def cancel_order(self, exchange_order_id: str, market_id: Optional[str] = None) -> bool:
         """Cancel an active order on Kalshi."""
         if self.dry_run:
             logger.info(f"[DRY-RUN KALSHI] Cancel order simulated: {exchange_order_id}")
             return True
 
         try:
-            await self._request("DELETE", f"/portfolio/orders/{exchange_order_id}", authenticated=True)
+            params = {"market_ticker": market_id} if market_id else {}
+            await self._request("DELETE", f"/portfolio/events/orders/{exchange_order_id}", params=params, authenticated=True)
             logger.info(f"[LIVE KALSHI] Order cancelled: {exchange_order_id}")
             return True
         except Exception as e:

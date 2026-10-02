@@ -245,3 +245,58 @@ async def test_partial_fill_hedging(risk_manager, reconciler, sample_opp):
     assert success is True
     assert final_state == ExecutionState.COMPLETED
     assert "8.0 units" in msg, f"Expected hedge of exactly 8.0 units, got {msg}"
+
+
+@pytest.mark.asyncio
+async def test_leg2_failure_triggers_emergency_unwind(risk_manager, reconciler, sample_opp):
+    api_cfg = APIConfig()
+    exec_cfg = ExecutionConfig(dry_run=True, live_trading_confirmed=False)
+
+    poly_client = PolymarketClient(api_cfg, dry_run=True)
+    kalshi_client = KalshiClient(api_cfg, dry_run=True)
+
+    fsm = LegRiskFSM(
+        config=exec_cfg,
+        poly_client=poly_client,
+        kalshi_client=kalshi_client,
+        risk_manager=risk_manager,
+        reconciler=reconciler,
+    )
+
+    # Leg 1 fills 10 units, but Leg 2 order placement fails/raises exception
+    async def mock_submit(leg_spec, qty, opp_id, leg_name):
+        if leg_name == "leg1":
+            return LiveOrder(
+                client_order_id=f"{opp_id}_leg1",
+                platform=leg_spec.platform,
+                market_id=leg_spec.market_id,
+                token_type=leg_spec.token_type,
+                side=leg_spec.side,
+                price=leg_spec.executable_price,
+                size=qty,
+                status=OrderStatus.FILLED,
+                filled_size=qty,
+                average_fill_price=leg_spec.executable_price,
+                exchange_order_id="pm_leg1_123",
+            )
+        elif leg_name == "leg2":
+            raise RuntimeError("Kalshi simulated API connection error")
+        elif leg_name == "unwind":
+            assert leg_spec.side == OrderSide.SELL, "Unwind order must be SELL"
+            return LiveOrder(
+                client_order_id=f"{opp_id}_unwind",
+                platform=leg_spec.platform,
+                market_id=leg_spec.market_id,
+                token_type=leg_spec.token_type,
+                side=leg_spec.side,
+                price=leg_spec.executable_price,
+                size=qty,
+                status=OrderStatus.FILLED,
+                filled_size=qty,
+                exchange_order_id="pm_unwind_123",
+            )
+
+    fsm._submit_leg_order = mock_submit
+    success, final_state, msg = await fsm.execute_opportunity(sample_opp)
+    assert final_state == ExecutionState.COMPLETED
+    assert "Unhedged leg handled" in msg
