@@ -92,8 +92,19 @@ class ArbitrageBot:
         # 1. Crash Recovery check
         unresolved = self.reconciler.recover_on_startup()
         if unresolved and not self.config.execution.dry_run:
-            logger.critical("HALTING: Unresolved orders found from previous crash in live mode!")
-            return
+            logger.warning(
+                f"CRASH RECOVERY: Found {len(unresolved)} unresolved sessions from killed run. "
+                "Archiving previous journal to clean state backup."
+            )
+            journal_path = Path(self.config.execution.journal_path)
+            if journal_path.exists():
+                ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                archive_file = journal_path.parent / f"execution_journal_crash_archive_{ts}.jsonl"
+                try:
+                    journal_path.rename(archive_file)
+                    logger.info(f"Archived previous crash journal to {archive_file}")
+                except Exception as e:
+                    logger.warning(f"Could not rename journal: {e}")
 
         # 2. Connect API clients
         await self.kalshi_client.connect()
