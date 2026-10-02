@@ -26,8 +26,12 @@ async def main():
         headers = poly._get_us_auth_headers("GET", path)
         resp = await poly._us_client.get(path, headers=headers)
         print("Polymarket US Positions:", resp.status_code, resp.json() if resp.status_code == 200 else resp.text)
+    # Check Kalshi positions
+    try:
+        resp = await kalshi._request("GET", "/portfolio/positions", authenticated=True)
+        print("Kalshi Positions:", resp)
     except Exception as e:
-        print("Positions check error:", e)
+        print("Kalshi positions check error:", e)
         
     await poly.close()
     await kalshi.close()
