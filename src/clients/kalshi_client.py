@@ -403,6 +403,12 @@ class KalshiClient:
             await self._request("DELETE", f"/portfolio/events/orders/{exchange_order_id}", params=params, authenticated=True)
             logger.info(f"[LIVE KALSHI] Order cancelled: {exchange_order_id}")
             return True
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.info(f"[LIVE KALSHI] Order {exchange_order_id} already filled or cancelled (404)")
+                return True
+            logger.error(f"[LIVE KALSHI] Cancel failed for {exchange_order_id}: {e}")
+            return False
         except Exception as e:
             logger.error(f"[LIVE KALSHI] Cancel failed for {exchange_order_id}: {e}")
             return False
