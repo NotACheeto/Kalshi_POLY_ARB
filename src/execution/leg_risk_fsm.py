@@ -120,9 +120,10 @@ class LegRiskFSM:
                     self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": err_msg})
                     return False, ExecutionState.ABORTED, err_msg
 
-            # HARD POSITIVE-EV GUARANTEE: Combined price must strictly be <= 0.98 ($0.02 minimum margin)
-            if (opp.leg1.executable_price + opp.leg2.executable_price) >= 0.985:
-                err_msg = f"ABORT: Combined entry price ${opp.leg1.executable_price + opp.leg2.executable_price:.4f} >= $0.985"
+            # HARD POSITIVE-EV GUARANTEE: Combined price must strictly be <= 0.965 to ensure >= 3.5% net margin
+            combined_book_cost = opp.leg1.executable_price + opp.leg2.executable_price
+            if combined_book_cost >= 0.965:
+                err_msg = f"ABORT: Combined entry price ${combined_book_cost:.4f} >= $0.965 (Edge below required threshold)"
                 logger.critical(err_msg)
                 self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": err_msg})
                 return False, ExecutionState.ABORTED, err_msg
@@ -131,9 +132,14 @@ class LegRiskFSM:
             self._transition(opp_id, pair_id, state, ExecutionState.LEG1_SUBMITTED, {"target_qty": target_qty})
             state = ExecutionState.LEG1_SUBMITTED
 
-            # Calculate strict price ceiling so that limit1 + limit2 <= 0.985 guaranteed
-            max_leg1_price = min(opp.leg1.executable_price, round(0.985 - opp.leg2.executable_price, 4))
-            max_leg2_price = min(opp.leg2.executable_price, round(0.985 - opp.leg1.executable_price, 4))
+            # Aggressive fill guarantee: Add 1-cent cushion per leg to cross the spread and guarantee execution,
+            # while enforcing a strict combined ceiling of $0.970 (guaranteeing >= $0.030 profit upon resolution).
+            cushioned_leg1 = round(opp.leg1.executable_price + 0.01, 2)
+            cushioned_leg2 = round(opp.leg2.executable_price + 0.01, 2)
+            
+            # Ensure combined limit order ceiling is strictly capped at $0.970
+            max_leg1_price = min(cushioned_leg1, round(0.970 - opp.leg2.executable_price, 2))
+            max_leg2_price = min(cushioned_leg2, round(0.970 - max_leg1_price, 2))
 
             # Dispatch orders to both Kalshi and Polymarket simultaneously
             leg1_coro = self._submit_leg_order(opp.leg1, target_qty, opp_id, "leg1", max_allowed_price=max_leg1_price)
@@ -253,10 +259,10 @@ class LegRiskFSM:
             if p_ask is None or k_ask is None:
                 return False
 
-            # Hard gross cost check: must be strictly < $0.985
-            if (p_ask + k_ask) >= 0.985:
+            # Hard gross cost check: must be strictly < $0.965 (requiring >= 3.5% edge)
+            if (p_ask + k_ask) >= 0.965:
                 logger.warning(
-                    f"Execution aborted: Live combined price ${p_ask + k_ask:.4f} >= $0.985 (Insufficient EV)"
+                    f"Execution aborted: Live combined price ${p_ask + k_ask:.4f} >= $0.965 (Insufficient EV for undercut buffer)"
                 )
                 return False
 
