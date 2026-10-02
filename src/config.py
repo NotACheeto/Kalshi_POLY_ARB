@@ -16,8 +16,13 @@ class APIConfig(BaseModel):
     polymarket_clob_url: str = "https://clob.polymarket.com"
     polymarket_gamma_url: str = "https://gamma-api.polymarket.com"
     polymarket_ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+    polymarket_us_base_url: str = "https://api.polymarket.us"
     
-    # Polymarket credentials (loaded from env)
+    # Polymarket US credentials (Ed25519)
+    polymarket_us_key_id: Optional[str] = None
+    polymarket_us_secret: Optional[str] = None
+    
+    # Legacy Polymarket CLOB credentials
     polymarket_api_key: Optional[str] = None
     polymarket_secret: Optional[str] = None
     polymarket_passphrase: Optional[str] = None
@@ -138,6 +143,9 @@ def load_config_from_yaml(yaml_path: str = "config/config.yaml") -> BotConfig:
     config = BotConfig(**cfg_data)
     
     # Overlay sensitive credentials from environment variables only (never YAML)
+    config.api.polymarket_us_key_id = os.getenv("POLYMARKET_US_KEY_ID", config.api.polymarket_us_key_id)
+    config.api.polymarket_us_secret = os.getenv("POLYMARKET_US_SECRET", config.api.polymarket_us_secret)
+    
     config.api.polymarket_api_key = os.getenv("POLYMARKET_API_KEY", config.api.polymarket_api_key)
     config.api.polymarket_secret = os.getenv("POLYMARKET_SECRET", config.api.polymarket_secret)
     config.api.polymarket_passphrase = os.getenv("POLYMARKET_PASSPHRASE", config.api.polymarket_passphrase)
