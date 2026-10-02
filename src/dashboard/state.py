@@ -53,9 +53,10 @@ class DashboardTelemetry(BaseModel):
 
     # Portfolio & Risk
     daily_pnl_dollars: float = 0.0
-    max_daily_loss_dollars: float = 15.0
+    max_daily_loss_dollars: float = 1.0
     current_exposure_dollars: float = 0.0
-    max_exposure_dollars: float = 100.0
+    max_exposure_dollars: float = 1.0
+    min_net_edge_pct: float = 0.025
     total_trades_executed: int = 0
     total_opportunities_detected: int = 0
 

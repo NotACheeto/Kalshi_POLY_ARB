@@ -359,15 +359,15 @@ def create_dashboard_app(
             <div style="font-size:0.8rem; margin-bottom:12px;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                     <span style="color:var(--text-muted);">Daily Loss Limit:</span>
-                    <span id="daily-loss-display" class="mono">$0.00 / $15.00</span>
+                    <span id="daily-loss-display" class="mono">$0.00 / $1.00</span>
                 </div>
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                     <span style="color:var(--text-muted);">Max Market Exposure:</span>
-                    <span class="mono">$50.00</span>
+                    <span id="max-exposure-display" class="mono">$1.00</span>
                 </div>
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                     <span style="color:var(--text-muted);">Min Net Edge Required:</span>
-                    <span class="mono">1.50%</span>
+                    <span id="min-edge-display" class="mono">2.50%</span>
                 </div>
                 <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                     <span style="color:var(--text-muted);">Execution Gate:</span>
@@ -410,8 +410,10 @@ def create_dashboard_app(
     </div>
 
     <script>
+        let ws = null;
         const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProto}//${window.location.host}/ws`;
+
         async function fetchState() {
             try {
                 const res = await fetch('/api/state');
@@ -456,11 +458,6 @@ def create_dashboard_app(
                 console.debug('WebSocket failed, fallback to HTTP poll:', e);
             }
         }
-
-        // Immediate fetch on load + fallback polling every 1000ms
-        fetchState();
-        setInterval(fetchState, 1000);
-        connect();
 
         function formatUptime(seconds) {
             const hrs = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -514,15 +511,26 @@ def create_dashboard_app(
                 const el = document.getElementById('dir1-cost');
                 el.innerText = `$${d.dir1_cost.toFixed(4)}`;
                 el.style.color = d.dir1_cost < 1.0 ? 'var(--accent-green)' : 'var(--text-main)';
-                document.getElementById('dir1-status').innerText = d.dir1_cost < 1.0 ? `EDGE: ${((1.0 - d.dir1_cost)*100).toFixed(2)}%` : 'No Arbitrage';
+                document.getElementById('dir1-status').innerText = d.dir1_cost < 1.0 ? `EDGE: ${((1.0 - d.dir1_cost)*100).toFixed(2)}%` : 'Monitoring Spread';
                 document.getElementById('dir1-status').className = d.dir1_cost < 1.0 ? 'spread-edge mono positive' : 'spread-edge mono neutral';
             }
             if (d.dir2_cost !== null) {
                 const el = document.getElementById('dir2-cost');
                 el.innerText = `$${d.dir2_cost.toFixed(4)}`;
                 el.style.color = d.dir2_cost < 1.0 ? 'var(--accent-green)' : 'var(--text-main)';
-                document.getElementById('dir2-status').innerText = d.dir2_cost < 1.0 ? `EDGE: ${((1.0 - d.dir2_cost)*100).toFixed(2)}%` : 'No Arbitrage';
+                document.getElementById('dir2-status').innerText = d.dir2_cost < 1.0 ? `EDGE: ${((1.0 - d.dir2_cost)*100).toFixed(2)}%` : 'Monitoring Spread';
                 document.getElementById('dir2-status').className = d.dir2_cost < 1.0 ? 'spread-edge mono positive' : 'spread-edge mono neutral';
+            }
+
+            // Risk panel dynamic elements
+            if (document.getElementById('daily-loss-display')) {
+                document.getElementById('daily-loss-display').innerText = `$${d.daily_pnl_dollars < 0 ? Math.abs(d.daily_pnl_dollars).toFixed(2) : '0.00'} / $${(d.max_daily_loss_dollars || 1.00).toFixed(2)}`;
+            }
+            if (document.getElementById('max-exposure-display')) {
+                document.getElementById('max-exposure-display').innerText = `$${(d.max_exposure_dollars || 1.00).toFixed(2)}`;
+            }
+            if (document.getElementById('min-edge-display') && d.min_net_edge_pct) {
+                document.getElementById('min-edge-display').innerText = `${(d.min_net_edge_pct * 100).toFixed(2)}%`;
             }
 
             // Console Stream
@@ -550,6 +558,9 @@ def create_dashboard_app(
             }
         }
 
+        // Initialize fetch + WebSocket
+        fetchState();
+        setInterval(fetchState, 1000);
         connect();
     </script>
 </body>

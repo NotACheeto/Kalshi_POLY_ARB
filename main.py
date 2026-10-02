@@ -145,6 +145,7 @@ async def main_async() -> None:
             dashboard_state.telemetry.mode = "DRY RUN (Paper Trading)" if config.execution.dry_run else "LIVE TRADING"
             dashboard_state.telemetry.max_daily_loss_dollars = config.risk.max_daily_loss_dollars
             dashboard_state.telemetry.max_exposure_dollars = config.risk.max_total_exposure_dollars
+            dashboard_state.telemetry.min_net_edge_pct = config.arbitrage.min_net_edge_pct
             app = create_dashboard_app(
                 dashboard_state,
                 auth_username=config.dashboard.username,
