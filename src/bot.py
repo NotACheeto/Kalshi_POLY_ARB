@@ -111,7 +111,7 @@ class ArbitrageBot:
         await self.poly_client.connect()
         self._running = True
         if self.dashboard_state:
-            mode_str = "LIVE (1 contract max)" if not self.config.dry_run else "DRY RUN"
+            mode_str = "LIVE (1 contract max)" if not self.config.execution.dry_run else "DRY RUN"
             self.dashboard_state.log_message(f"Engine online: Connected to Kalshi and Polymarket ({mode_str})")
 
         # 3. Initial Market Discovery & Pairing
