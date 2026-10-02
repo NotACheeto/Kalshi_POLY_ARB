@@ -33,7 +33,8 @@ from src.clients.polymarket_client import PolymarketClient
 def risk_manager():
     cfg = RiskConfig(
         max_order_size_dollars=50.0,
-        min_order_size_dollars=2.0,
+        min_order_size_dollars=0.01,
+        max_contracts_per_trade=10.0,
         max_market_exposure_dollars=100.0,
         max_total_exposure_dollars=200.0,
         max_daily_loss_dollars=20.0,

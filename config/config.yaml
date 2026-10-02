@@ -16,7 +16,7 @@ api:
 arbitrage:
   # Hard Positive-EV Gate Thresholds
   min_net_edge_pct: 0.015          # Require 1.5% net profit after ALL fees and slippage
-  min_net_profit_dollars: 0.15     # Minimum $0.15 net profit per 10-contract bundle ($10 capital)
+  min_net_profit_dollars: 0.01     # Minimum $0.01 net profit (scaled for micro 1-contract sizing)
   
   # Duration Focus: Markets resolving in 24 hours or less
   max_hours_to_resolution: 24.0   # Max 24 hours to resolution (high turnover, low duration risk)
@@ -36,13 +36,13 @@ arbitrage:
   kalshi_fee_cap_dollars: 0.02    # $0.02 maximum fee cap per contract
 
 risk:
-  max_order_size_dollars: 10.0    # Strict $10.00 capital limit per bundle trade (matches Kalshi balance)
-  max_contracts_per_trade: 10.0   # Strict limit to 10 contracts per trade
-  min_order_size_dollars: 1.0     # Minimum trade size
-  max_market_exposure_dollars: 10.0  # Max exposure per single market pair ($10.00)
-  max_total_exposure_dollars: 10.0   # Max global open exposure ($10.00)
-  max_daily_loss_dollars: 5.0     # Stop trading if cumulative daily loss exceeds $5.00
-  max_consecutive_failures: 3     # Trigger kill switch after 3 consecutive failed executions
+  max_order_size_dollars: 1.0     # Strict $1.00 capital limit per bundle trade ($1 max per side)
+  max_contracts_per_trade: 1.0    # Strict limit to 1 contract per trade
+  min_order_size_dollars: 0.01    # Minimum trade size (allows single contracts down to 1 cent)
+  max_market_exposure_dollars: 1.0 # Max exposure per single market pair ($1.00)
+  max_total_exposure_dollars: 1.0  # Max global open exposure ($1.00)
+  max_daily_loss_dollars: 1.0     # Stop trading if cumulative daily loss exceeds $1.00
+  max_consecutive_failures: 2     # Trigger kill switch after 2 consecutive failed executions
   kill_switch_enabled: true
 
 execution:
