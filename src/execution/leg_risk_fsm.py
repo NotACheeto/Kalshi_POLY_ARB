@@ -156,8 +156,13 @@ class LegRiskFSM:
             self._transition(opp_id, pair_id, state, ExecutionState.LEG2_SUBMITTED, {"hedge_qty": hedge_qty})
             state = ExecutionState.LEG2_SUBMITTED
 
+            # Calculate maximum price for Leg 2 that guarantees positive net profit
+            max_leg2_price = round(1.00 - leg1_order.average_fill_price - 0.01, 2)
+
             try:
-                leg2_order = await self._submit_leg_order(opp.leg2, hedge_qty, opp_id, "leg2")
+                leg2_order = await self._submit_leg_order(
+                    opp.leg2, hedge_qty, opp_id, "leg2", max_allowed_price=max_leg2_price
+                )
                 # Wait for Leg 2 fill
                 leg2_filled_qty = await self._wait_for_fill(
                     leg2_order,
@@ -268,13 +273,18 @@ class LegRiskFSM:
         qty: float,
         opp_id: str,
         leg_name: str,
+        max_allowed_price: Optional[float] = None,
     ) -> LiveOrder:
         """Dispatch order to the respective exchange client."""
         client_order_id = f"{opp_id}_{leg_name}_{uuid.uuid4().hex[:6]}"
         price = leg_spec.executable_price
         if leg_name == "leg2" and leg_spec.side == OrderSide.BUY:
-            # Taker buffer (+2 cents) so Leg 2 IOC hedge crosses the book and fills immediately
-            price = min(0.99, round(leg_spec.executable_price + 0.02, 2))
+            # Taker buffer (+2 cents), but strictly bounded by positive-EV break-even ceiling
+            cushioned = round(leg_spec.executable_price + 0.02, 2)
+            if max_allowed_price is not None:
+                price = min(max_allowed_price, cushioned)
+            else:
+                price = min(0.99, cushioned)
 
         if leg_spec.platform == Platform.POLYMARKET:
             return await self.poly_client.place_order(

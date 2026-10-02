@@ -265,7 +265,7 @@ async def test_leg2_failure_triggers_emergency_unwind(risk_manager, reconciler, 
     )
 
     # Leg 1 fills 10 units, but Leg 2 order placement fails/raises exception
-    async def mock_submit(leg_spec, qty, opp_id, leg_name):
+    async def mock_submit(leg_spec, qty, opp_id, leg_name, *args, **kwargs):
         if leg_name == "leg1":
             return LiveOrder(
                 client_order_id=f"{opp_id}_leg1",
