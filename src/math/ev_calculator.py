@@ -70,19 +70,19 @@ class EVCalculator:
 
         opps: List[ArbitrageOpportunity] = []
 
-        # Direction 1: Buy YES on Poly + Buy NO on Kalshi
+        # Direction 1: Buy NO on Kalshi + Buy YES on Poly
         opp1 = self._evaluate_direction(
             pair=pair,
-            leg1_platform=Platform.POLYMARKET,
-            leg1_token=TokenType.YES,
-            leg1_price=poly_ob.best_yes_ask,
-            leg1_size=poly_ob.best_yes_ask_size,
-            leg1_token_id=pair.poly_market.yes_token_id,
-            leg2_platform=Platform.KALSHI,
-            leg2_token=TokenType.NO,
-            leg2_price=kalshi_ob.best_no_ask,
-            leg2_size=kalshi_ob.best_no_ask_size,
-            leg2_token_id=pair.kalshi_market.market_id,
+            leg1_platform=Platform.KALSHI,
+            leg1_token=TokenType.NO,
+            leg1_price=kalshi_ob.best_no_ask,
+            leg1_size=kalshi_ob.best_no_ask_size,
+            leg1_token_id=pair.kalshi_market.market_id,
+            leg2_platform=Platform.POLYMARKET,
+            leg2_token=TokenType.YES,
+            leg2_price=poly_ob.best_yes_ask,
+            leg2_size=poly_ob.best_yes_ask_size,
+            leg2_token_id=pair.poly_market.yes_token_id,
             hours_to_res=hours_to_res,
             now=now,
             latency_ms=latency_ms,
@@ -90,19 +90,19 @@ class EVCalculator:
         if opp1 is not None and opp1.is_positive_ev:
             opps.append(opp1)
 
-        # Direction 2: Buy NO on Poly + Buy YES on Kalshi
+        # Direction 2: Buy YES on Kalshi + Buy NO on Poly
         opp2 = self._evaluate_direction(
             pair=pair,
-            leg1_platform=Platform.POLYMARKET,
-            leg1_token=TokenType.NO,
-            leg1_price=poly_ob.best_no_ask,
-            leg1_size=poly_ob.best_no_ask_size,
-            leg1_token_id=pair.poly_market.no_token_id,
-            leg2_platform=Platform.KALSHI,
-            leg2_token=TokenType.YES,
-            leg2_price=kalshi_ob.best_yes_ask,
-            leg2_size=kalshi_ob.best_yes_ask_size,
-            leg2_token_id=pair.kalshi_market.market_id,
+            leg1_platform=Platform.KALSHI,
+            leg1_token=TokenType.YES,
+            leg1_price=kalshi_ob.best_yes_ask,
+            leg1_size=kalshi_ob.best_yes_ask_size,
+            leg1_token_id=pair.kalshi_market.market_id,
+            leg2_platform=Platform.POLYMARKET,
+            leg2_token=TokenType.NO,
+            leg2_price=poly_ob.best_no_ask,
+            leg2_size=poly_ob.best_no_ask_size,
+            leg2_token_id=pair.poly_market.no_token_id,
             hours_to_res=hours_to_res,
             now=now,
             latency_ms=latency_ms,

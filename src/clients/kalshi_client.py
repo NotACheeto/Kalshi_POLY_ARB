@@ -363,6 +363,11 @@ class KalshiClient:
             "client_order_id": client_order_id,
         }
 
+        logger.info(
+            f"[LIVE KALSHI] Submitting order: {side.value} {size:.2f} {token_type.value} @ ${price:.4f} "
+            f"(Kalshi side={book_side}, px=${kalshi_price:.4f}) on {market_id}"
+        )
+
         try:
             resp = await self._request("POST", "/portfolio/events/orders", json_body=payload, authenticated=True)
             order.exchange_order_id = resp.get("order_id")

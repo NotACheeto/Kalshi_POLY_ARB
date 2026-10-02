@@ -131,6 +131,7 @@ class LegRiskFSM:
             if leg1_filled_qty <= 0:
                 # Zero fill: Cancel order, clean abort, 0 naked risk
                 await self._cancel_leg_order(leg1_order)
+                self.risk_manager.record_execution_failure("Leg 1 zero fill / timeout")
                 self._transition(opp_id, pair_id, state, ExecutionState.ABORTED, {"reason": "Leg 1 zero fill / timeout"})
                 return False, ExecutionState.ABORTED, "Leg 1 failed to fill, aborted safely with 0 exposure"
 
